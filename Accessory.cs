@@ -82,7 +82,7 @@ namespace HomeKit
                     continue;
                 }
 
-                m_Logger.LogTrace("{data}", BitConverter.ToString(res.Buffer));
+                //m_Logger.LogTrace("{data}", BitConverter.ToString(res.Buffer));
 
 
                 sb.Clear();
@@ -92,13 +92,22 @@ namespace HomeKit
                     var packet = PacketReader.ReadPacket(res.Buffer);
                     sb.AppendLine(packet.ToString());
 
-                    foreach (var question in packet.Questions)
+                    sb.AppendLine("Questions:");
+                    foreach (var item in packet.Questions)
                     {
-                        sb.AppendLine(question.ToString());
+                        sb.AppendLine(item.ToString());
+                    }
+
+                    sb.AppendLine("Answers:");
+                    foreach (var item in packet.Answers)
+                    {
+                        sb.AppendLine(item.ToString());
                     }
                 }
                 catch (Exception ex)
                 {
+                    sb.Append(ex.GetType().Name);
+                    sb.Append(": ");
                     sb.AppendLine(ex.Message);
                 }
 

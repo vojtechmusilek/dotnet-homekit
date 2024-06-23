@@ -1,11 +1,12 @@
-﻿using System.Collections.Generic;
-
-namespace HomeKit.Mdns
+﻿namespace HomeKit.Mdns
 {
     internal record struct Packet
     {
         public PacketHeader Header;
-        public List<PacketQuestion> Questions;
+        public PacketQuestion[] Questions;
+        public PacketRecord[] Answers;
+        public PacketRecord[] Authorities;
+        public PacketRecord[] Additionals;
     }
 
     internal record struct PacketHeader
@@ -24,4 +25,25 @@ namespace HomeKit.Mdns
         public ushort Type;
         public ushort Class;
     }
+
+    internal record struct PacketRecord
+    {
+        public string Name;
+        public ushort Type;
+        public ushort Class;
+        public uint Ttl;
+        public ushort DataLength;
+        public IPacketRecordData Data;
+    }
+
+    internal interface IPacketRecordData;
+
+    internal record struct UnknownPacketRecordData : IPacketRecordData;
+
+    internal record struct PtrPacketRecordData : IPacketRecordData
+    {
+        public string Name;
+    }
+
+
 }

@@ -10,10 +10,7 @@ namespace HomeKit.Mdns
     {
         public static Packet ReadPacket(byte[] data)
         {
-            var packet = new Packet()
-            {
-                Questions = new()
-            };
+            var packet = new Packet();
 
             int position = 0;
 
@@ -27,17 +24,76 @@ namespace HomeKit.Mdns
                 Additionals = ReadUInt16(data, ref position),
             };
 
+            packet.Questions = new PacketQuestion[packet.Header.Questions];
+            packet.Answers = new PacketRecord[packet.Header.Answers];
+            packet.Authorities = new PacketRecord[packet.Header.Authorities];
+            packet.Additionals = new PacketRecord[packet.Header.Additionals];
+
             for (int i = 0; i < packet.Header.Questions; i++)
             {
-                packet.Questions.Add(new PacketQuestion()
+                packet.Questions[i] = new PacketQuestion()
                 {
                     Name = ReadDomainName(data, ref position),
                     Type = ReadUInt16(data, ref position),
                     Class = ReadUInt16(data, ref position),
-                });
+                };
+            }
+
+            for (int i = 0; i < packet.Header.Answers; i++)
+            {
+                packet.Answers[i] = ReadPacketRecord(data, ref position);
+            }
+
+            for (int i = 0; i < packet.Header.Authorities; i++)
+            {
+                packet.Authorities[i] = ReadPacketRecord(data, ref position);
+            }
+
+            for (int i = 0; i < packet.Header.Additionals; i++)
+            {
+                packet.Additionals[i] = ReadPacketRecord(data, ref position);
             }
 
             return packet;
+        }
+
+        private static PacketRecord ReadPacketRecord(ReadOnlySpan<byte> data, ref int position)
+        {
+            var name = ReadDomainName(data, ref position);
+            var type = ReadUInt16(data, ref position);
+            var @class = ReadUInt16(data, ref position);
+            var ttl = ReadUInt32(data, ref position);
+
+            var recordDataLength = ReadUInt16(data, ref position);
+            IPacketRecordData recordData = new UnknownPacketRecordData();
+            var positionBefore = position;
+
+            if (type == 12) // PTR
+            {
+                recordData = new PtrPacketRecordData()
+                {
+                    Name = ReadDomainName(data, ref position)
+                };
+            }
+            else
+            {
+                ReadBytes(data, recordDataLength, ref position);
+            }
+
+            if (position - positionBefore != recordDataLength)
+            {
+                throw new InvalidOperationException("Packet record data length does not match");
+            }
+
+            return new PacketRecord()
+            {
+                Name = name,
+                Type = type,
+                Class = @class,
+                Ttl = ttl,
+                DataLength = recordDataLength,
+                Data = recordData,
+            };
         }
 
         private static ReadOnlySpan<byte> ReadBytes(ReadOnlySpan<byte> data, int count, ref int position)
@@ -55,6 +111,11 @@ namespace HomeKit.Mdns
         private static ushort ReadUInt16(ReadOnlySpan<byte> data, ref int position)
         {
             return BinaryPrimitives.ReadUInt16BigEndian(ReadBytes(data, 2, ref position));
+        }
+
+        private static uint ReadUInt32(ReadOnlySpan<byte> data, ref int position)
+        {
+            return BinaryPrimitives.ReadUInt32BigEndian(ReadBytes(data, 4, ref position));
         }
 
         internal static string ReadDomainName(ReadOnlySpan<byte> data, ref int position)
