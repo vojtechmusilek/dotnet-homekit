@@ -3,12 +3,13 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
+using HomeKit.Resources;
 
 namespace HomeKit.Mdns
 {
     internal static class PacketReader
     {
-        public static Packet ReadPacket(byte[] data)
+        public static Packet ReadPacket(ReadOnlySpan<byte> data)
         {
             var packet = new Packet();
 
@@ -68,9 +69,9 @@ namespace HomeKit.Mdns
             IPacketRecordData recordData = new UnknownPacketRecordData();
             var positionBefore = position;
 
-            if (type == 12) // PTR
+            if (type == Const.MdnsDomainNamePointerType)
             {
-                recordData = new PtrPacketRecordData()
+                recordData = new PacketRecordData_PTR()
                 {
                     Name = ReadDomainName(data, ref position)
                 };
@@ -118,7 +119,7 @@ namespace HomeKit.Mdns
             return BinaryPrimitives.ReadUInt32BigEndian(ReadBytes(data, 4, ref position));
         }
 
-        internal static string ReadDomainName(ReadOnlySpan<byte> data, ref int position)
+        private static string ReadDomainName(ReadOnlySpan<byte> data, ref int position)
         {
             var bytes = new List<byte>();
 

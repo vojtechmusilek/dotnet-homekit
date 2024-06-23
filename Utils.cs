@@ -75,5 +75,29 @@ namespace HomeKit
                 return true;
             }).ToArray();
         }
+
+        public static ushort SetBits(ushort oldValue, int position, int length, ushort newValue)
+        {
+            if (length <= 0 || position >= 16)
+            {
+                return oldValue;
+            }
+
+            int mask = (2 << (length - 1)) - 1;
+            oldValue &= (ushort)~(mask << position);
+            oldValue |= (ushort)((newValue & mask) << position);
+            return oldValue;
+        }
+
+        public static ushort GetBits(ushort oldValue, int position, int length)
+        {
+            if (length <= 0 || position >= 16)
+            {
+                return 0;
+            }
+
+            int mask = (2 << (length - 1)) - 1;
+            return (ushort)((oldValue >> position) & mask);
+        }
     }
 }

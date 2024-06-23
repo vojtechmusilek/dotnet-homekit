@@ -84,12 +84,13 @@ namespace HomeKit
 
                 //m_Logger.LogTrace("{data}", BitConverter.ToString(res.Buffer));
 
+                Packet packet = default;
 
                 sb.Clear();
 
                 try
                 {
-                    var packet = PacketReader.ReadPacket(res.Buffer);
+                    packet = PacketReader.ReadPacket(res.Buffer);
                     sb.AppendLine(packet.ToString());
 
                     sb.AppendLine("Questions:");
@@ -112,9 +113,45 @@ namespace HomeKit
                 }
 
                 m_Logger.LogInformation("UDP: {source} {len} bytes\n{packet}", res.RemoteEndPoint, res.Buffer.Length, sb.ToString());
+
+                if (packet != default)
+                {
+                    PacketReceived(packet);
+                }
             }
 
             client.Dispose();
+        }
+
+        private void PacketReceived(Packet packet)
+        {
+            foreach (var question in packet.Questions)
+            {
+                if (question.Type == Const.MdnsDomainNamePointerType)
+                {
+                    if (question.Name == Const.MdnsHapDomainName)
+                    {
+                        // todo broadcast announce packet (MakeAnnouncePacket)
+
+                        ushort flags = 0;
+                        flags = Utils.SetBits(flags, Const.FlagsQueryOrResponsePosition, 1, 1);
+                        flags = Utils.SetBits(flags, Const.FlagsAuthoritativeAnswerPosition, 1, 1);
+
+                        var longName = Name + "@" + MacAddress.Replace(":", "") + "." + Const.MdnsHapDomainName;
+                        var shortName = Name + Const.MdnsLocal;
+
+                        var responsePacket = new Packet()
+                        {
+                            Header = new PacketHeader()
+                            {
+                                Flags = flags
+                            }
+                        };
+
+
+                    }
+                }
+            }
         }
 
         private void AddAccessoryInformationService()

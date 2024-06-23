@@ -1,4 +1,6 @@
-﻿namespace HomeKit.Mdns
+﻿using System.Collections.Generic;
+
+namespace HomeKit.Mdns
 {
     internal record struct Packet
     {
@@ -40,10 +42,26 @@
 
     internal record struct UnknownPacketRecordData : IPacketRecordData;
 
-    internal record struct PtrPacketRecordData : IPacketRecordData
+    internal record struct PacketRecordData_PTR : IPacketRecordData
     {
         public string Name;
     }
 
+    internal record struct PacketRecordData_SRV : IPacketRecordData
+    {
+        public ushort Priority;
+        public ushort Weight;
+        public ushort Port;
+        public string Target;
+    }
 
+    internal record struct PacketRecordData_TXT : IPacketRecordData
+    {
+        public Dictionary<string, string> KeyValuePairs;
+    }
+
+    internal record struct PacketRecordData_A : IPacketRecordData
+    {
+        public string IpAddress;
+    }
 }
