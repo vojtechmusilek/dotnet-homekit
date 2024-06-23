@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Net.NetworkInformation;
 using System.Text;
 using HomeKit.Resources;
 
@@ -58,6 +59,21 @@ namespace HomeKit
             var buffer = new byte[6];
             Random.Shared.NextBytes(buffer);
             return string.Join(':', buffer.Select(x => x.ToString("X2")));
+        }
+
+        public static NetworkInterface[] GetMulticastNetworkInterfaces()
+        {
+            return NetworkInterface.GetAllNetworkInterfaces().Where(ni =>
+            {
+                if (!ni.SupportsMulticast) return false;
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) return false;
+                if (ni.OperationalStatus != OperationalStatus.Up) return false;
+
+                // todo check for index?
+                var props = ni.GetIPProperties().GetIPv4Properties();
+
+                return true;
+            }).ToArray();
         }
     }
 }

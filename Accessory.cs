@@ -1,4 +1,9 @@
 ﻿using System;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading.Tasks;
+using HomeKit.Mdns;
 using HomeKit.Resources;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -6,7 +11,7 @@ using QRCoder;
 
 namespace HomeKit
 {
-    internal class Accessory : IDisposable
+    public class Accessory : IDisposable
     {
         private readonly ILoggerFactory m_LoggerFactory;
         private readonly ILogger m_Logger;
@@ -32,7 +37,8 @@ namespace HomeKit
             m_LoggerFactory = loggerFactory;
             m_Logger = loggerFactory.CreateLogger($"Accessory<{name}>");
 
-            AddAccessoryInformationService();
+            // todo
+            //AddAccessoryInformationService();
         }
 
         public void Publish()
@@ -44,7 +50,62 @@ namespace HomeKit
 
             m_Logger.LogTrace("MAC address: {mac}", MacAddress);
 
-            // todo wip
+            foreach (var ni in Utils.GetMulticastNetworkInterfaces())
+            {
+                var adapterIndex = ni.GetIPProperties().GetIPv4Properties().Index;
+                var client = new UdpClient();
+                var socket = client.Client;
+
+                socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, IPAddress.HostToNetworkOrder(adapterIndex));
+                client.ExclusiveAddressUse = false;
+                socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                var localEp = new IPEndPoint(IPAddress.Any, 5353);
+                socket.Bind(localEp);
+                var multicastAddress = IPAddress.Parse("224.0.0.251");
+                var multOpt = new MulticastOption(multicastAddress, adapterIndex);
+                socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, multOpt);
+
+                Task.Run(() => ClientTask(client));
+            }
+        }
+
+        private async Task ClientTask(UdpClient client)
+        {
+            StringBuilder sb = new();
+
+            while (client.Client.IsBound)
+            {
+                var res = await client.ReceiveAsync();
+
+                if (res.RemoteEndPoint.Address.ToString() != "192.168.1.110")
+                {
+                    continue;
+                }
+
+                m_Logger.LogTrace("{data}", BitConverter.ToString(res.Buffer));
+
+
+                sb.Clear();
+
+                try
+                {
+                    var packet = PacketReader.ReadPacket(res.Buffer);
+                    sb.AppendLine(packet.ToString());
+
+                    foreach (var question in packet.Questions)
+                    {
+                        sb.AppendLine(question.ToString());
+                    }
+                }
+                catch (Exception ex)
+                {
+                    sb.AppendLine(ex.Message);
+                }
+
+                m_Logger.LogInformation("UDP: {source} {len} bytes\n{packet}", res.RemoteEndPoint, res.Buffer.Length, sb.ToString());
+            }
+
+            client.Dispose();
         }
 
         private void AddAccessoryInformationService()
@@ -79,7 +140,8 @@ namespace HomeKit
 
         public void Dispose()
         {
-            throw new NotImplementedException();
+            //throw new NotImplementedException();
         }
+
     }
 }
