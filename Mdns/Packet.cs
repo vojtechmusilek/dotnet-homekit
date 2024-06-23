@@ -44,11 +44,15 @@ namespace HomeKit.Mdns
 
     internal record struct PacketRecordData_PTR : IPacketRecordData
     {
+        public const int Type = 12;
+
         public string Name;
     }
 
     internal record struct PacketRecordData_SRV : IPacketRecordData
     {
+        public const int Type = 33;
+
         public ushort Priority;
         public ushort Weight;
         public ushort Port;
@@ -57,11 +61,15 @@ namespace HomeKit.Mdns
 
     internal record struct PacketRecordData_TXT : IPacketRecordData
     {
+        public const int Type = 16;
+
         public Dictionary<string, string> KeyValuePairs;
     }
 
     internal record struct PacketRecordData_A : IPacketRecordData
     {
+        public const int Type = 1;
+
         public string IpAddress;
     }
 }

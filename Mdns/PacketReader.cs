@@ -3,7 +3,6 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
-using HomeKit.Resources;
 
 namespace HomeKit.Mdns
 {
@@ -69,7 +68,7 @@ namespace HomeKit.Mdns
             IPacketRecordData recordData = new UnknownPacketRecordData();
             var positionBefore = position;
 
-            if (type == Const.MdnsDomainNamePointerType)
+            if (type == PacketRecordData_PTR.Type)
             {
                 recordData = new PacketRecordData_PTR()
                 {
