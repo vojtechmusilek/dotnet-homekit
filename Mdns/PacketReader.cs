@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -103,13 +104,9 @@ namespace HomeKit.Mdns
             }
             else if (type == PacketRecordData_A.Type)
             {
-                var a = ReadByte(data, ref position).GetHashCode();
-                var b = ReadByte(data, ref position).GetHashCode();
-                var c = ReadByte(data, ref position).GetHashCode();
-                var d = ReadByte(data, ref position).GetHashCode();
                 recordData = new PacketRecordData_A()
                 {
-                    IpAddress = $"{a}.{b}.{c}.{d}"
+                    IpAddress = new IPAddress(ReadBytes(data, 4, ref position))
                 };
             }
             else if (type == PacketRecordData_NSEC.Type)

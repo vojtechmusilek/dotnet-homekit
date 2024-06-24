@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -94,7 +93,7 @@ namespace HomeKit.Mdns
             }
             else if (packetRecord.Data is PacketRecordData_A a)
             {
-                buffer.AddRange(a.IpAddress.Split('.').Select(byte.Parse));
+                buffer.AddRange(a.IpAddress.GetAddressBytes());
             }
             else if (packetRecord.Data is PacketRecordData_NSEC nsec)
             {

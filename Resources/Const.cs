@@ -7,6 +7,8 @@
 
         public const string MdnsHapDomainName = "_hap._tcp.local.";
         public const string MdnsLocal = "local.";
+        public const ushort MdnsPort = 5353;
+        public const string MdnsMulticastAddress = "224.0.0.251";
 
         public const int MdnsType_SOA = 6;
         public const int MdnsType_NSAPPTR = 23;

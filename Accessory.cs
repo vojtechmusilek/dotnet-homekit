@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -26,6 +26,7 @@ namespace HomeKit
         public string MacAddress { get; }
         public bool Paired { get; }
         public ushort Port { get; }
+        public IPAddress IpAddress { get; }
 
         /// <param name="pinCode">Format: 000-00-000</param>
         public Accessory(string name, string pinCode, Category category, ILoggerFactory? loggerFactory)
@@ -37,6 +38,7 @@ namespace HomeKit
             MacAddress = Utils.GenerateMacAddress();
             Paired = false;
             Port = 23232;
+            IpAddress = IPAddress.Parse("192.168.1.101");
 
             loggerFactory ??= new NullLoggerFactory();
             m_LoggerFactory = loggerFactory;
@@ -54,31 +56,37 @@ namespace HomeKit
             }
 
             m_Logger.LogTrace("MAC address: {mac}", MacAddress);
+            m_Logger.LogTrace("Port: {port}", Port);
+            m_Logger.LogTrace("Address: {address}", IpAddress);
 
             var listener = new TcpListener(IPAddress.Any, Port);
-            Task.Run(() => ServerReceptionTask(listener));
+            Task.Run(() => TcpLobbyTask(listener));
 
-            foreach (var ni in Utils.GetMulticastNetworkInterfaces())
+            var nis = Utils.GetMulticastNetworkInterfaces();
+            var ni = nis.FirstOrDefault(x => x.GetIPProperties().UnicastAddresses.Any(y => y.Address.Equals(IpAddress)));
+            if (ni is null)
             {
-                var adapterIndex = ni.GetIPProperties().GetIPv4Properties().Index;
-                var client = new UdpClient();
-                var socket = client.Client;
-
-                socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, IPAddress.HostToNetworkOrder(adapterIndex));
-                client.ExclusiveAddressUse = false;
-                socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-                var localEp = new IPEndPoint(IPAddress.Any, 5353);
-                socket.Bind(localEp);
-                var multicastAddress = IPAddress.Parse("224.0.0.251");
-                var multOpt = new MulticastOption(multicastAddress, adapterIndex);
-                socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, multOpt);
-
-                Task.Run(() => ClientTask(client));
-                break;
+                m_Logger.LogError("Failed to find network interface with specified address");
+                return;
             }
+
+            m_Logger.LogTrace("Interface: {interface}", ni.Name);
+
+            var adapterIndex = ni.GetIPProperties().GetIPv4Properties().Index;
+            var multicastInterface = IPAddress.HostToNetworkOrder(adapterIndex);
+            var membership = new MulticastOption(IPAddress.Parse(Const.MdnsMulticastAddress), adapterIndex);
+
+            var udpClient = new UdpClient();
+            udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            udpClient.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, multicastInterface);
+            udpClient.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, membership);
+            udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, Const.MdnsPort));
+
+            Task.Run(() => UdpTask(udpClient));
+
         }
 
-        private async Task ServerReceptionTask(TcpListener listener)
+        private async Task TcpLobbyTask(TcpListener listener)
         {
             listener.Start();
 
@@ -90,23 +98,32 @@ namespace HomeKit
 
                 m_Logger.LogInformation("Accepted new TCP client {remote}", client.Client.RemoteEndPoint);
 
-                _ = Task.Run(() => ServerTask(client));
+                _ = Task.Run(() => TcpTask(client));
             }
         }
 
-        private async Task ServerTask(TcpClient client)
+        private async Task TcpTask(TcpClient client)
         {
-            var buffer = new Memory<byte>();
+            var buffer = new byte[2048];
             var stream = client.GetStream();
 
             while (client.Connected)
             {
                 var length = await stream.ReadAsync(buffer);
+                if (length == 0)
+                {
+                    break;
+                }
+
                 m_Logger.LogInformation("Received TCP data {length}", length);
+                m_Logger.LogTrace("TCP: {data}", BitConverter.ToString(buffer[0..length]));
             }
+
+            m_Logger.LogInformation("Closing TCP client {remote}", client.Client.RemoteEndPoint);
+            client.Close();
         }
 
-        private async Task ClientTask(UdpClient client)
+        private async Task UdpTask(UdpClient client)
         {
             StringBuilder sb = new();
 
@@ -119,8 +136,8 @@ namespace HomeKit
                     continue;
                 }
 
-
                 //m_Logger.LogTrace("{data}", BitConverter.ToString(res.Buffer));
+                //m_Logger.LogTrace("{data}", Encoding.UTF8.GetString(res.Buffer));
 
                 Packet packet = default;
 
@@ -164,6 +181,7 @@ namespace HomeKit
 
                 m_Logger.LogInformation("UDP: {remote} {len} bytes\n{packet}", res.RemoteEndPoint, res.Buffer.Length, sb.ToString());
 
+                // todo add periodic annoucements, not just replying
                 if (packet != default)
                 {
                     ProcessUdpPacket(packet, client);
@@ -181,16 +199,13 @@ namespace HomeKit
                 {
                     if (question.Name == Const.MdnsHapDomainName)
                     {
-                        // todo broadcast announce packet (MakeAnnouncePacket)
-
                         ushort flags = 0;
                         flags = Utils.SetBits(flags, Const.FlagsQueryOrResponsePosition, 1, 1);
                         flags = Utils.SetBits(flags, Const.FlagsAuthoritativeAnswerPosition, 1, 1);
 
-                        var name = Name + "_" + MacAddress.Replace(":", "");
-
-                        var longName = name + "." + Const.MdnsHapDomainName;
-                        var shortName = name + "." + Const.MdnsLocal;
+                        var mac = MacAddress.Replace(":", "");
+                        var identifier = Name + "@" + mac + "." + Const.MdnsHapDomainName;
+                        var host = mac + "." + Const.MdnsLocal;
 
                         var responsePacket = new Packet()
                         {
@@ -201,7 +216,18 @@ namespace HomeKit
                             Answers = [
                                 new PacketRecord()
                                 {
-                                    Name = longName,
+                                    Name = Const.MdnsHapDomainName,
+                                    Type = PacketRecordData_PTR.Type,
+                                    Class = 1,
+                                    Ttl = Const.LongTtl,
+                                    Data = new PacketRecordData_PTR()
+                                    {
+                                        Name = identifier
+                                    }
+                                },
+                                new PacketRecord()
+                                {
+                                    Name = identifier,
                                     Type = PacketRecordData_SRV.Type,
                                     Class = 0x8001,
                                     Ttl = Const.ShortTtl,
@@ -210,12 +236,12 @@ namespace HomeKit
                                         Priority = 0,
                                         Weight = 0,
                                         Port = Port,
-                                        Target = shortName,
+                                        Target = host,
                                     }
                                 },
                                 new PacketRecord()
                                 {
-                                    Name = longName,
+                                    Name = identifier,
                                     Type = PacketRecordData_TXT.Type,
                                     Class = 0x8001,
                                     Ttl = Const.LongTtl,
@@ -230,9 +256,9 @@ namespace HomeKit
 
                                             { "s#", Paired ? "2" : "1" }, // todo state 1=unpaired 2=paired
                                             { "sf", Paired ? "0" : "1" }, // todo status 0=hidden 1=discoverable
-
+                                
                                             { "c#", "1" }, // todo config num, increment when accessory changes
-
+                                
                                             { "pv", "1.1" },
                                             { "ff", "0" },
                                         }
@@ -240,81 +266,22 @@ namespace HomeKit
                                 },
                                 new PacketRecord()
                                 {
-                                    Name = "_services._dns-sd._udp.local.",
-                                    Type = PacketRecordData_PTR.Type,
-                                    Class = 1,
-                                    Ttl = Const.LongTtl,
-                                    Data = new PacketRecordData_PTR()
-                                    {
-                                        Name = Const.MdnsHapDomainName
-                                    }
-                                },
-                                new PacketRecord()
-                                {
-                                    Name = Const.MdnsHapDomainName,
-                                    Type = PacketRecordData_PTR.Type,
-                                    Class = 1,
-                                    Ttl = Const.LongTtl,
-                                    Data = new PacketRecordData_PTR()
-                                    {
-                                        Name = longName
-                                    }
-                                },
-                                new PacketRecord()
-                                {
-                                    Name = shortName,
+                                    Name = host,
                                     Type = PacketRecordData_A.Type,
                                     Class = 0x8001,
                                     Ttl = Const.ShortTtl,
                                     Data = new PacketRecordData_A()
                                     {
-                                        IpAddress = "192.168.1.101" // todo
+                                        IpAddress = IpAddress
                                     }
                                 },
-                                new PacketRecord()
-                                {
-                                    Name = "101.1.168.192.in-addr.arpa.", // todo
-                                    Type = PacketRecordData_PTR.Type,
-                                    Class = 0x8001,
-                                    Ttl = Const.ShortTtl,
-                                    Data = new PacketRecordData_PTR()
-                                    {
-                                        Name = shortName
-                                    }
-                                }
                             ],
-                            Additionals = [
-                                new PacketRecord()
-                                {
-                                    Name = longName,
-                                    Type = PacketRecordData_NSEC.Type,
-                                    Class = 0x8001,
-                                    Ttl = Const.ShortTtl,
-                                    Data = new PacketRecordData_NSEC()
-                                    {
-                                        NextName = longName,
-                                        IncludedTypes = [Const.MdnsType_NSAPPTR, Const.MdnsType_A6]
-                                    }
-                                },
-                                new PacketRecord()
-                                {
-                                    Name = shortName,
-                                    Type = PacketRecordData_NSEC.Type,
-                                    Class = 0x8001,
-                                    Ttl = Const.ShortTtl,
-                                    Data = new PacketRecordData_NSEC()
-                                    {
-                                        NextName = shortName,
-                                        IncludedTypes = [Const.MdnsType_SOA]
-                                    }
-                                }
-                            ]
                         };
 
 
                         var result = PacketWriter.WritePacket(responsePacket);
 
-                        var broadcastEndpoint = new IPEndPoint(IPAddress.Parse("224.0.0.251"), 5353);
+                        var broadcastEndpoint = new IPEndPoint(IPAddress.Parse(Const.MdnsMulticastAddress), Const.MdnsPort);
                         var length = client.Send(result, result.Length, broadcastEndpoint);
                         m_Logger.LogInformation("UDP: broadcasted packet {length} bytes", length);
                     }
@@ -344,7 +311,6 @@ namespace HomeKit
             throw new NotImplementedException();
         }
 
-        // todo validate if works correctly
         private void PrintSetupMessage()
         {
             var uri = Utils.GenerateXhmUri(Category, PinCode, SetupId);
@@ -362,7 +328,7 @@ namespace HomeKit
 
         public void Dispose()
         {
-            //throw new NotImplementedException();
+            // todo
         }
 
     }

@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Net;
 
 namespace HomeKit.Mdns
 {
@@ -71,7 +72,7 @@ namespace HomeKit.Mdns
     {
         public const int Type = 1;
 
-        public string IpAddress;
+        public IPAddress IpAddress;
     }
 
     internal record struct PacketRecordData_NSEC : IPacketRecordData
