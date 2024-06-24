@@ -74,6 +74,7 @@ namespace HomeKit
                 socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, multOpt);
 
                 Task.Run(() => ClientTask(client));
+                break;
             }
         }
 
@@ -83,6 +84,8 @@ namespace HomeKit
 
             while (true)
             {
+                m_Logger.LogInformation("Waiting for TCP client...");
+
                 var client = await listener.AcceptTcpClientAsync();
 
                 m_Logger.LogInformation("Accepted new TCP client {remote}", client.Client.RemoteEndPoint);
@@ -111,10 +114,11 @@ namespace HomeKit
             {
                 var res = await client.ReceiveAsync();
 
-                if (res.RemoteEndPoint.Address.ToString() != "192.168.1.110")
+                if (res.RemoteEndPoint.Address.ToString() != "192.168.1.110" && res.RemoteEndPoint.Address.ToString() != "192.168.1.101")
                 {
                     continue;
                 }
+
 
                 //m_Logger.LogTrace("{data}", BitConverter.ToString(res.Buffer));
 
@@ -135,6 +139,18 @@ namespace HomeKit
 
                     sb.AppendLine("Answers:");
                     foreach (var item in packet.Answers)
+                    {
+                        sb.AppendLine(item.ToString());
+                    }
+
+                    sb.AppendLine("Authorities:");
+                    foreach (var item in packet.Authorities)
+                    {
+                        sb.AppendLine(item.ToString());
+                    }
+
+                    sb.AppendLine("Additionals:");
+                    foreach (var item in packet.Additionals)
                     {
                         sb.AppendLine(item.ToString());
                     }
@@ -175,8 +191,6 @@ namespace HomeKit
 
                         var longName = name + "." + Const.MdnsHapDomainName;
                         var shortName = name + "." + Const.MdnsLocal;
-
-                        // todo try to add 2 additionals
 
                         var responsePacket = new Packet()
                         {
@@ -267,8 +281,34 @@ namespace HomeKit
                                     {
                                         Name = shortName
                                     }
-                                },
+                                }
                             ],
+                            Additionals = [
+                                new PacketRecord()
+                                {
+                                    Name = longName,
+                                    Type = PacketRecordData_NSEC.Type,
+                                    Class = 0x8001,
+                                    Ttl = Const.ShortTtl,
+                                    Data = new PacketRecordData_NSEC()
+                                    {
+                                        NextName = longName,
+                                        IncludedTypes = [Const.MdnsType_NSAPPTR, Const.MdnsType_A6]
+                                    }
+                                },
+                                new PacketRecord()
+                                {
+                                    Name = shortName,
+                                    Type = PacketRecordData_NSEC.Type,
+                                    Class = 0x8001,
+                                    Ttl = Const.ShortTtl,
+                                    Data = new PacketRecordData_NSEC()
+                                    {
+                                        NextName = shortName,
+                                        IncludedTypes = [Const.MdnsType_SOA]
+                                    }
+                                }
+                            ]
                         };
 
 

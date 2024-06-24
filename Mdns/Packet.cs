@@ -34,8 +34,9 @@ namespace HomeKit.Mdns
         public ushort Type;
         public ushort Class;
         public uint Ttl;
-        public ushort DataLength;
         public IPacketRecordData Data;
+
+        public ushort DataLength;
     }
 
     internal interface IPacketRecordData;
@@ -71,5 +72,13 @@ namespace HomeKit.Mdns
         public const int Type = 1;
 
         public string IpAddress;
+    }
+
+    internal record struct PacketRecordData_NSEC : IPacketRecordData
+    {
+        public const int Type = 47;
+
+        public string NextName;
+        public HashSet<ushort> IncludedTypes;
     }
 }

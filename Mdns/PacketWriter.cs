@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace HomeKit.Mdns
@@ -25,16 +26,26 @@ namespace HomeKit.Mdns
 
             for (int i = 0; i < packet.Header.Questions; i++)
             {
-                WriteDomainNameUncompressed(buffer, packet.Questions[i].Name);
+                WriteDomainNameUncompressed(buffer, packet.Questions![i].Name);
                 WriteUInt16(buffer, packet.Questions[i].Type);
                 WriteUInt16(buffer, packet.Questions[i].Class);
             }
 
             for (int i = 0; i < packet.Header.Answers; i++)
             {
-                WritePacketRecord(buffer, packet.Answers[i]);
+                WritePacketRecord(buffer, packet.Answers![i]);
             }
 
+            for (int i = 0; i < packet.Header.Authorities; i++)
+            {
+                WritePacketRecord(buffer, packet.Authorities![i]);
+            }
+            ;
+            for (int i = 0; i < packet.Header.Additionals; i++)
+            {
+                WritePacketRecord(buffer, packet.Additionals![i]);
+            }
+            ;
             return buffer.ToArray();
         }
 
@@ -54,7 +65,7 @@ namespace HomeKit.Mdns
 
         private static void WritePacketRecord(List<byte> buffer, PacketRecord packetRecord)
         {
-            WriteDomainNameUncompressed(buffer, packetRecord.Name);
+            WriteDomainNameCompressed(buffer, packetRecord.Name);
             WriteUInt16(buffer, packetRecord.Type);
             WriteUInt16(buffer, packetRecord.Class);
             WriteUInt32(buffer, packetRecord.Ttl);
@@ -65,13 +76,13 @@ namespace HomeKit.Mdns
 
             if (packetRecord.Data is PacketRecordData_PTR ptr)
             {
-                WriteDomainNameUncompressed(buffer, ptr.Name);
+                WriteDomainNameCompressed(buffer, ptr.Name);
             }
             else if (packetRecord.Data is PacketRecordData_SRV srv)
             {
                 WriteUInt16(buffer, srv.Priority);
                 WriteUInt16(buffer, srv.Weight);
-                WriteUInt32(buffer, srv.Port);
+                WriteUInt16(buffer, srv.Port);
                 WriteDomainNameUncompressed(buffer, srv.Target);
             }
             else if (packetRecord.Data is PacketRecordData_TXT txt)
@@ -84,6 +95,11 @@ namespace HomeKit.Mdns
             else if (packetRecord.Data is PacketRecordData_A a)
             {
                 buffer.AddRange(a.IpAddress.Split('.').Select(byte.Parse));
+            }
+            else if (packetRecord.Data is PacketRecordData_NSEC nsec)
+            {
+                WriteDomainNameUncompressed(buffer, nsec.NextName);
+                WriteNsecTypes(buffer, nsec.IncludedTypes);
             }
             else
             {
@@ -122,6 +138,114 @@ namespace HomeKit.Mdns
             }
 
             buffer.Add(0);
+        }
+
+        private static void WriteNsecTypes(List<byte> buffer, HashSet<ushort> types)
+        {
+            if (types.Count == 0)
+            {
+                throw new Exception("Cannot write zero types");
+            }
+
+            var map = new byte[256, 32];
+
+            foreach (var type in types)
+            {
+                int n = type;
+                if (n < 0 || n > 0xffff)
+                {
+                    throw new Exception("Invalid type");
+                }
+
+                int window = n >> 8;
+                int index = n & 0xff;
+                int slot = index >> 3;
+                int bit = index & 7;
+
+                map[window, slot] |= (byte)(1 << bit);
+            }
+
+            for (int window = 0; window < 256; ++window)
+            {
+                int length = 0;
+                for (int slot = 0; slot < 32; ++slot)
+                {
+                    if (map[window, slot] != 0)
+                    {
+                        length = slot + 1;
+                    }
+                }
+
+                if (length > 0)
+                {
+                    buffer.Add((byte)window);
+                    buffer.Add((byte)length);
+                    for (int slot = 0; slot < length; ++slot)
+                    {
+                        buffer.Add(map[window, slot]);
+                    }
+                }
+            }
+        }
+
+        public static void WriteDomainNameCompressed(List<byte> buffer, string value)
+        {
+            var uncompressed = new List<byte>();
+            WriteDomainNameUncompressed(uncompressed, value);
+
+            int index = 0;
+            while (uncompressed[index] != 0)
+            {
+                if (FindTail(CollectionsMarshal.AsSpan(buffer), CollectionsMarshal.AsSpan(uncompressed), index, out int position))
+                {
+                    buffer.Add((byte)(0xc0 | (position >> 8)));
+                    buffer.Add((byte)position);
+                    return;
+                }
+
+                buffer.Add(uncompressed[index]);
+                for (int k = 1; k <= uncompressed[index]; ++k)
+                {
+                    buffer.Add(uncompressed[index + k]);
+                }
+
+                index += 1 + uncompressed[index];
+            }
+
+            buffer.Add(0);
+        }
+
+        /// <summary>https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.4</summary>
+        private static bool FindTail(ReadOnlySpan<byte> buffer, ReadOnlySpan<byte> serial, int index, out int position)
+        {
+            position = -1;
+
+            int tailLength = serial.Length - index;
+            if (tailLength < 3)
+            {
+                return false;
+            }
+
+            int limit = Math.Min(0x3fff, 1 + (buffer.Length - tailLength));
+
+            for (position = 0; position < limit; ++position)
+            {
+                bool match = true;
+                for (int offset = 0; match && (offset < tailLength); ++offset)
+                {
+                    if (buffer[position + offset] != serial[index + offset])
+                    {
+                        match = false;
+                    }
+                }
+
+                if (match)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

@@ -75,6 +75,56 @@ namespace HomeKit.Mdns
                     Name = ReadDomainName(data, ref position)
                 };
             }
+            else if (type == PacketRecordData_SRV.Type)
+            {
+                recordData = new PacketRecordData_SRV()
+                {
+                    Priority = ReadUInt16(data, ref position),
+                    Weight = ReadUInt16(data, ref position),
+                    Port = ReadUInt16(data, ref position),
+                    Target = ReadDomainName(data, ref position),
+                };
+            }
+            else if (type == PacketRecordData_TXT.Type)
+            {
+                var txts = new Dictionary<string, string>();
+
+                while (position - positionBefore != recordDataLength)
+                {
+                    var pair = ReadString(data, ref position);
+                    var split = pair.Split('=');
+                    txts.Add(split[0], split[1]);
+                }
+
+                recordData = new PacketRecordData_TXT()
+                {
+                    KeyValuePairs = txts
+                };
+            }
+            else if (type == PacketRecordData_A.Type)
+            {
+                var a = ReadByte(data, ref position).GetHashCode();
+                var b = ReadByte(data, ref position).GetHashCode();
+                var c = ReadByte(data, ref position).GetHashCode();
+                var d = ReadByte(data, ref position).GetHashCode();
+                recordData = new PacketRecordData_A()
+                {
+                    IpAddress = $"{a}.{b}.{c}.{d}"
+                };
+            }
+            else if (type == PacketRecordData_NSEC.Type)
+            {
+                int positionNameStart = position;
+                var nextName = ReadDomainName(data, ref position);
+                int nameLength = position - positionNameStart;
+                int bitmapLength = recordDataLength - nameLength;
+
+                recordData = new PacketRecordData_NSEC()
+                {
+                    NextName = nextName,
+                    IncludedTypes = ReadNsecTypes(data, bitmapLength, ref position),
+                };
+            }
             else
             {
                 ReadBytes(data, recordDataLength, ref position);
@@ -91,8 +141,9 @@ namespace HomeKit.Mdns
                 Type = type,
                 Class = @class,
                 Ttl = ttl,
-                DataLength = recordDataLength,
                 Data = recordData,
+
+                DataLength = recordDataLength
             };
         }
 
@@ -116,6 +167,59 @@ namespace HomeKit.Mdns
         private static uint ReadUInt32(ReadOnlySpan<byte> data, ref int position)
         {
             return BinaryPrimitives.ReadUInt32BigEndian(ReadBytes(data, 4, ref position));
+        }
+
+        private static HashSet<ushort> ReadNsecTypes(ReadOnlySpan<byte> data, int bitmapLength, ref int position)
+        {
+            var includedTypes = new HashSet<ushort>();
+            int i = 0;
+
+            while (i < bitmapLength)
+            {
+                if (i >= bitmapLength)
+                {
+                    return includedTypes;
+                }
+
+                int window = ReadByte(data, ref position);
+                i++;
+
+                if (i >= bitmapLength)
+                {
+                    return includedTypes;
+                }
+
+                int length = ReadByte(data, ref position);
+                i++;
+
+                for (int j = 0; j < length; ++j)
+                {
+                    if (i >= bitmapLength)
+                    {
+                        return includedTypes;
+                    }
+
+                    int val = ReadByte(data, ref position);
+                    i++;
+
+                    for (int bit = 0; bit < 8; ++bit)
+                    {
+                        if (0 != (val & (1 << bit)))
+                        {
+                            var type = bit + (j * 8) + (window * 256);
+                            includedTypes.Add((ushort)type);
+                        }
+                    }
+                }
+            }
+
+            return includedTypes;
+        }
+
+        private static string ReadString(ReadOnlySpan<byte> data, ref int position)
+        {
+            short length = ReadByte(data, ref position);
+            return Encoding.UTF8.GetString(ReadBytes(data, length, ref position));
         }
 
         private static string ReadDomainName(ReadOnlySpan<byte> data, ref int position)

@@ -8,6 +8,10 @@
         public const string MdnsHapDomainName = "_hap._tcp.local.";
         public const string MdnsLocal = "local.";
 
+        public const int MdnsType_SOA = 6;
+        public const int MdnsType_NSAPPTR = 23;
+        public const int MdnsType_A6 = 38;
+
         public const int FlagsQueryOrResponsePosition = 15;
         public const int FlagsAuthoritativeAnswerPosition = 10;
 
