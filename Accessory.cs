@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -171,8 +171,10 @@ namespace HomeKit
                         flags = Utils.SetBits(flags, Const.FlagsQueryOrResponsePosition, 1, 1);
                         flags = Utils.SetBits(flags, Const.FlagsAuthoritativeAnswerPosition, 1, 1);
 
-                        var longName = Name + "@" + MacAddress.Replace(":", "") + "." + Const.MdnsHapDomainName;
-                        var shortName = Name + Const.MdnsLocal;
+                        var name = Name + "_" + MacAddress.Replace(":", "");
+
+                        var longName = name + "." + Const.MdnsHapDomainName;
+                        var shortName = name + "." + Const.MdnsLocal;
 
                         // todo try to add 2 additionals
 
