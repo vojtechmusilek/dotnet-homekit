@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using HomeKit.Mdns;
 using HomeKit.Resources;
@@ -27,6 +28,8 @@ namespace HomeKit
         public bool Paired { get; }
         public ushort Port { get; }
         public IPAddress IpAddress { get; }
+
+        private MdnsClient m_MdnsClient = null!;
 
         /// <param name="pinCode">Format: 000-00-000</param>
         public Accessory(string name, string pinCode, Category category, ILoggerFactory? loggerFactory)
@@ -72,18 +75,31 @@ namespace HomeKit
 
             m_Logger.LogTrace("Interface: {interface}", ni.Name);
 
-            var adapterIndex = ni.GetIPProperties().GetIPv4Properties().Index;
-            var multicastInterface = IPAddress.HostToNetworkOrder(adapterIndex);
-            var membership = new MulticastOption(IPAddress.Parse(Const.MdnsMulticastAddress), adapterIndex);
+            m_MdnsClient = new MdnsClient(ni, m_LoggerFactory.CreateLogger<MdnsClient>());
+            m_MdnsClient.OnPacketReceived += MdnsClient_OnPacketReceived;
+            m_MdnsClient.StartAsync(CancellationToken.None);
+        }
 
-            var udpClient = new UdpClient();
-            udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            udpClient.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, multicastInterface);
-            udpClient.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, membership);
-            udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, Const.MdnsPort));
+        private void MdnsClient_OnPacketReceived(Packet packet)
+        {
+            // todo remove temporary filter
+            if (packet.Endpoint.Address.ToString() != "192.168.1.110" && packet.Endpoint.Address.ToString() != "192.168.1.101")
+            {
+                return;
+            }
 
-            Task.Run(() => UdpTask(udpClient));
+            m_Logger.LogInformation("Received packet {packet}", packet);
 
+            //if (packet.Endpoint.Address.Equals(IpAddress))
+            //{
+            //    return;
+            //}
+
+            var response = RespondToPacket(packet);
+            if (response.HasValue)
+            {
+                m_MdnsClient.Broadcast(response.Value);
+            }
         }
 
         private async Task TcpLobbyTask(TcpListener listener)
@@ -123,98 +139,36 @@ namespace HomeKit
             client.Close();
         }
 
-        private async Task UdpTask(UdpClient client)
+        private Packet? RespondToPacket(Packet packet)
         {
-            StringBuilder sb = new();
-
-            while (client.Client.IsBound)
+            foreach (var question in packet.Questions)
             {
-                var res = await client.ReceiveAsync();
-
-                if (res.RemoteEndPoint.Address.ToString() != "192.168.1.110" && res.RemoteEndPoint.Address.ToString() != "192.168.1.101")
+                if (question.Type != PacketRecordData_PTR.Type)
                 {
                     continue;
                 }
 
-                //m_Logger.LogTrace("{data}", BitConverter.ToString(res.Buffer));
-                //m_Logger.LogTrace("{data}", Encoding.UTF8.GetString(res.Buffer));
-
-                Packet packet = default;
-
-                sb.Clear();
-
-                try
+                if (question.Name != Const.MdnsHapDomainName)
                 {
-                    packet = PacketReader.ReadPacket(res.Buffer);
-                    sb.AppendLine(packet.ToString());
-
-                    sb.AppendLine("Questions:");
-                    foreach (var item in packet.Questions)
-                    {
-                        sb.AppendLine(item.ToString());
-                    }
-
-                    sb.AppendLine("Answers:");
-                    foreach (var item in packet.Answers)
-                    {
-                        sb.AppendLine(item.ToString());
-                    }
-
-                    sb.AppendLine("Authorities:");
-                    foreach (var item in packet.Authorities)
-                    {
-                        sb.AppendLine(item.ToString());
-                    }
-
-                    sb.AppendLine("Additionals:");
-                    foreach (var item in packet.Additionals)
-                    {
-                        sb.AppendLine(item.ToString());
-                    }
-                }
-                catch (Exception ex)
-                {
-                    sb.Append(ex.GetType().Name);
-                    sb.Append(": ");
-                    sb.AppendLine(ex.Message);
+                    continue;
                 }
 
-                m_Logger.LogInformation("UDP: {remote} {len} bytes\n{packet}", res.RemoteEndPoint, res.Buffer.Length, sb.ToString());
+                ushort flags = 0;
+                flags = Utils.SetBits(flags, Const.FlagsQueryOrResponsePosition, 1, 1);
+                flags = Utils.SetBits(flags, Const.FlagsAuthoritativeAnswerPosition, 1, 1);
 
-                // todo add periodic annoucements, not just replying
-                if (packet != default)
+                var mac = MacAddress.Replace(":", "");
+                var identifier = Name + "@" + mac + "." + Const.MdnsHapDomainName;
+                var host = mac + "." + Const.MdnsLocal;
+
+                var responsePacket = new Packet()
                 {
-                    ProcessUdpPacket(packet, client);
-                }
-            }
-
-            client.Dispose();
-        }
-
-        private void ProcessUdpPacket(Packet packet, UdpClient client)
-        {
-            foreach (var question in packet.Questions)
-            {
-                if (question.Type == PacketRecordData_PTR.Type)
-                {
-                    if (question.Name == Const.MdnsHapDomainName)
+                    Header = new PacketHeader()
                     {
-                        ushort flags = 0;
-                        flags = Utils.SetBits(flags, Const.FlagsQueryOrResponsePosition, 1, 1);
-                        flags = Utils.SetBits(flags, Const.FlagsAuthoritativeAnswerPosition, 1, 1);
-
-                        var mac = MacAddress.Replace(":", "");
-                        var identifier = Name + "@" + mac + "." + Const.MdnsHapDomainName;
-                        var host = mac + "." + Const.MdnsLocal;
-
-                        var responsePacket = new Packet()
-                        {
-                            Header = new PacketHeader()
-                            {
-                                Flags = flags
-                            },
-                            Answers = [
-                                new PacketRecord()
+                        Flags = flags
+                    },
+                    Answers = [
+                        new PacketRecord()
                                 {
                                     Name = Const.MdnsHapDomainName,
                                     Type = PacketRecordData_PTR.Type,
@@ -276,17 +230,12 @@ namespace HomeKit
                                     }
                                 },
                             ],
-                        };
+                };
 
-
-                        var result = PacketWriter.WritePacket(responsePacket);
-
-                        var broadcastEndpoint = new IPEndPoint(IPAddress.Parse(Const.MdnsMulticastAddress), Const.MdnsPort);
-                        var length = client.Send(result, result.Length, broadcastEndpoint);
-                        m_Logger.LogInformation("UDP: broadcasted packet {length} bytes", length);
-                    }
-                }
+                return responsePacket;
             }
+
+            return null;
         }
 
         private string GenerateSetupHash()

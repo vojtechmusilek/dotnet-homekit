@@ -10,6 +10,8 @@ namespace HomeKit.Mdns
         public PacketRecord[] Answers;
         public PacketRecord[] Authorities;
         public PacketRecord[] Additionals;
+
+        public IPEndPoint Endpoint;
     }
 
     internal record struct PacketHeader
