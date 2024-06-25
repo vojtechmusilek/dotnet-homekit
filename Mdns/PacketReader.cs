@@ -93,6 +93,11 @@ namespace HomeKit.Mdns
                 while (position - positionBefore != recordDataLength)
                 {
                     var pair = ReadString(data, ref position);
+                    if (pair == string.Empty)
+                    {
+                        break;
+                    }
+
                     var split = pair.Split('=');
                     txts.Add(split[0], split[1]);
                 }
