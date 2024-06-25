@@ -40,15 +40,13 @@ namespace HomeKit
             payload <<= 4;
             payload |= 0 & 0xF;
             payload <<= 8;
-            payload |= (int)category & 0xFF; // todo try (uint)0xFF
+            payload |= (int)category & (uint)0xFF;
             payload <<= 4;
             payload |= 2 & 0xF;
             payload <<= 27;
-            payload |= int.Parse(pinCode.Replace("-", "")) & 0x7FFFFFFF; // todo try (uint)0x7FFFFFFF
+            payload |= int.Parse(pinCode.Replace("-", "")) & (uint)0x7FFFFFFF;
 
-            // todo inline ConvertToBase36
-            var encodedPayload = ConvertToBase36(payload);
-            encodedPayload = encodedPayload.PadLeft(9, '0');
+            var encodedPayload = ConvertToBase36(payload).PadLeft(9, '0');
 
             return $"X-HM://{encodedPayload}{setupId}";
         }
