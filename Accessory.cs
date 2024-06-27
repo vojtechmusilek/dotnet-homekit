@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using HomeKit.Hap;
 using HomeKit.Mdns;
 using HomeKit.Resources;
 using Microsoft.Extensions.Logging;
@@ -114,29 +115,9 @@ namespace HomeKit
 
                 m_Logger.LogInformation("Accepted new TCP client {remote}", client.Client.RemoteEndPoint);
 
-                _ = Task.Run(() => TcpTask(client));
+                var hapClient = new HapClient(client, m_LoggerFactory.CreateLogger<HapClient>());
+                await hapClient.StartAsync(CancellationToken.None);
             }
-        }
-
-        private async Task TcpTask(TcpClient client)
-        {
-            var buffer = new byte[2048];
-            var stream = client.GetStream();
-
-            while (client.Connected)
-            {
-                var length = await stream.ReadAsync(buffer);
-                if (length == 0)
-                {
-                    break;
-                }
-
-                m_Logger.LogInformation("Received TCP data {length}", length);
-                m_Logger.LogTrace("TCP: {data}", BitConverter.ToString(buffer[0..length]));
-            }
-
-            m_Logger.LogInformation("Closing TCP client {remote}", client.Client.RemoteEndPoint);
-            client.Close();
         }
 
         private Packet? RespondToPacket(Packet packet)
