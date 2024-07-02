@@ -21,6 +21,16 @@ namespace HomeKit
         private readonly ILoggerFactory m_LoggerFactory;
         private readonly ILogger m_Logger;
 
+        // temporary for debugging
+        public static byte[] Temporary_AccessoryCurvePk_pvM1_pvM3 = null!;
+        public static byte[] Temporary_IosDeviceCurvePk_pvM1_pvM3 = null!;
+        public static byte[] Temporary_AccessoryLtSk_psM5_pvM1 = null!;
+        public static byte[] Temporary_AccessoryLtPk_psM5_pvM1 = null!;
+        public static byte[] Temporary_IosDeviceLtpk_psM5_pvM3 = null!;
+        public static byte[] Temporary_SharedSecret_pvM1_pvM3_reqHapDecrypt = null!;
+        public static bool Temporary_Ready;
+
+
         public string Name { get; }
         public string PinCode { get; }
         public Category Category { get; }
@@ -79,6 +89,8 @@ namespace HomeKit
             m_MdnsClient = new MdnsClient(ni, m_LoggerFactory.CreateLogger<MdnsClient>());
             m_MdnsClient.OnPacketReceived += MdnsClient_OnPacketReceived;
             m_MdnsClient.StartAsync(CancellationToken.None);
+
+            m_MdnsClient.Broadcast(CreateBroadcastPacket());
         }
 
         private void MdnsClient_OnPacketReceived(Packet packet)
@@ -89,7 +101,7 @@ namespace HomeKit
                 return;
             }
 
-            m_Logger.LogInformation("Received packet {packet}", packet);
+            m_Logger.LogTrace("Received packet {packet}", packet);
 
             //if (packet.Endpoint.Address.Equals(IpAddress))
             //{
@@ -115,7 +127,7 @@ namespace HomeKit
 
                 m_Logger.LogInformation("Accepted new TCP client {remote}", client.Client.RemoteEndPoint);
 
-                var hapClient = new HapClient(client, m_LoggerFactory.CreateLogger<HapClient>());
+                var hapClient = new HapClient(client, PinCode, MacAddress, m_LoggerFactory.CreateLogger<HapClient>());
                 await hapClient.StartAsync(CancellationToken.None);
             }
         }
@@ -134,89 +146,94 @@ namespace HomeKit
                     continue;
                 }
 
-                ushort flags = 0;
-                flags = Utils.SetBits(flags, Const.FlagsQueryOrResponsePosition, 1, 1);
-                flags = Utils.SetBits(flags, Const.FlagsAuthoritativeAnswerPosition, 1, 1);
-
-                var mac = MacAddress.Replace(":", "");
-                var identifier = Name + "@" + mac + "." + Const.MdnsHapDomainName;
-                var host = mac + "." + Const.MdnsLocal;
-
-                var responsePacket = new Packet()
-                {
-                    Header = new PacketHeader()
-                    {
-                        Flags = flags
-                    },
-                    Answers = [
-                        new PacketRecord()
-                                {
-                                    Name = Const.MdnsHapDomainName,
-                                    Type = PacketRecordData_PTR.Type,
-                                    Class = 1,
-                                    Ttl = Const.LongTtl,
-                                    Data = new PacketRecordData_PTR()
-                                    {
-                                        Name = identifier
-                                    }
-                                },
-                                new PacketRecord()
-                                {
-                                    Name = identifier,
-                                    Type = PacketRecordData_SRV.Type,
-                                    Class = 0x8001,
-                                    Ttl = Const.ShortTtl,
-                                    Data = new PacketRecordData_SRV()
-                                    {
-                                        Priority = 0,
-                                        Weight = 0,
-                                        Port = Port,
-                                        Target = host,
-                                    }
-                                },
-                                new PacketRecord()
-                                {
-                                    Name = identifier,
-                                    Type = PacketRecordData_TXT.Type,
-                                    Class = 0x8001,
-                                    Ttl = Const.LongTtl,
-                                    Data = new PacketRecordData_TXT()
-                                    {
-                                        KeyValuePairs = new Dictionary<string, string>()
-                                        {
-                                            { "md", Name },
-                                            { "id", MacAddress },
-                                            { "ci", Category.GetHashCode().ToString() },
-                                            { "sh", GenerateSetupHash() },
-
-                                            { "s#", Paired ? "2" : "1" }, // todo state 1=unpaired 2=paired
-                                            { "sf", Paired ? "0" : "1" }, // todo status 0=hidden 1=discoverable
-                                
-                                            { "c#", "1" }, // todo config num, increment when accessory changes
-                                
-                                            { "pv", "1.1" },
-                                            { "ff", "0" },
-                                        }
-                                    }
-                                },
-                                new PacketRecord()
-                                {
-                                    Name = host,
-                                    Type = PacketRecordData_A.Type,
-                                    Class = 0x8001,
-                                    Ttl = Const.ShortTtl,
-                                    Data = new PacketRecordData_A()
-                                    {
-                                        IpAddress = IpAddress
-                                    }
-                                },
-                            ],
-                };
-
-                return responsePacket;
+                return CreateBroadcastPacket();
             }
 
             return null;
+        }
+
+        private Packet CreateBroadcastPacket()
+        {
+            ushort flags = 0;
+            flags = Utils.SetBits(flags, Const.FlagsQueryOrResponsePosition, 1, 1);
+            flags = Utils.SetBits(flags, Const.FlagsAuthoritativeAnswerPosition, 1, 1);
+
+            var mac = MacAddress.Replace(":", "");
+            var identifier = Name + "@" + mac + "." + Const.MdnsHapDomainName;
+            var host = mac + "." + Const.MdnsLocal;
+
+            var responsePacket = new Packet()
+            {
+                Header = new PacketHeader()
+                {
+                    Flags = flags
+                },
+                Answers = [
+                    new PacketRecord()
+                        {
+                            Name = Const.MdnsHapDomainName,
+                            Type = PacketRecordData_PTR.Type,
+                            Class = 1,
+                            Ttl = Const.LongTtl,
+                            Data = new PacketRecordData_PTR()
+                            {
+                                Name = identifier
+                            }
+                        },
+                        new PacketRecord()
+                        {
+                            Name = identifier,
+                            Type = PacketRecordData_SRV.Type,
+                            Class = 0x8001,
+                            Ttl = Const.ShortTtl,
+                            Data = new PacketRecordData_SRV()
+                            {
+                                Priority = 0,
+                                Weight = 0,
+                                Port = Port,
+                                Target = host,
+                            }
+                        },
+                        new PacketRecord()
+                        {
+                            Name = identifier,
+                            Type = PacketRecordData_TXT.Type,
+                            Class = 0x8001,
+                            Ttl = Const.LongTtl,
+                            Data = new PacketRecordData_TXT()
+                            {
+                                KeyValuePairs = new Dictionary<string, string>()
+                                {
+                                    { "md", Name },
+                                    { "id", MacAddress },
+                                    { "ci", Category.GetHashCode().ToString() },
+                                    { "sh", GenerateSetupHash() },
+
+                                    { "s#", Paired ? "2" : "1" }, // todo state 1=unpaired 2=paired
+                                    { "sf", Paired ? "0" : "1" }, // todo status 0=hidden 1=discoverable
+                                
+                                    { "c#", "1" }, // todo config num, increment when accessory changes
+                                
+                                    { "pv", "1.1" },
+                                    { "ff", "0" },
+                                }
+                            }
+                        },
+                        new PacketRecord()
+                        {
+                            Name = host,
+                            Type = PacketRecordData_A.Type,
+                            Class = 0x8001,
+                            Ttl = Const.ShortTtl,
+                            Data = new PacketRecordData_A()
+                            {
+                                IpAddress = IpAddress
+                            }
+                        },
+                    ],
+            };
+
+            return responsePacket;
         }
 
         private string GenerateSetupHash()

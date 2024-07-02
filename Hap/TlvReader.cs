@@ -1,42 +1,49 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace HomeKit.Hap
 {
     internal static class TlvReader
     {
-        public static Tlv[] ReadTlvs(ReadOnlySpan<byte> data)
+        public static int ReadValue(Span<byte> buffer, TlvType type, ReadOnlySpan<byte> data)
         {
-            var tlvs = new List<Tlv>();
-            var position = 0;
+            var dataPosition = 0;
+            var bufferPosition = 0;
 
-            while (position < data.Length)
+            while (dataPosition < data.Length)
             {
-                var tag = data[position];
-                var length = data[position + 1];
-                var value = data[(position + 2)..(position + 2 + length)];
+                var currentType = (TlvType)data[dataPosition++];
+                var currentLength = data[dataPosition++];
 
-                var target = tlvs.FirstOrDefault(it => it.Tag == tag);
-                if (target != default)
+                if (currentType == type)
                 {
-                    // todo does this happen?
-                    target.Value.AddRange(value);
-                }
-                else
-                {
-                    tlvs.Add(new Tlv()
-                    {
-                        Tag = tag,
-                        Value = new(value.ToArray()),
-                        Length = length
-                    });
+                    data.Slice(dataPosition, currentLength).CopyTo(buffer[bufferPosition..]);
+                    bufferPosition += currentLength;
                 }
 
-                position = position + 2 + length;
+                dataPosition += currentLength;
             }
 
-            return tlvs.ToArray();
+            return bufferPosition;
+        }
+
+        public static byte? ReadValue(TlvType type, ReadOnlySpan<byte> data)
+        {
+            var dataPosition = 0;
+
+            while (dataPosition < data.Length)
+            {
+                var currentType = (TlvType)data[dataPosition++];
+                var currentLength = data[dataPosition++];
+
+                if (currentType == type && currentLength == 1)
+                {
+                    return data[dataPosition++];
+                }
+
+                dataPosition += currentLength;
+            }
+
+            return null;
         }
     }
 }

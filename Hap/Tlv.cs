@@ -1,12 +1,20 @@
-﻿using System.Collections.Generic;
-
-namespace HomeKit.Hap
+﻿namespace HomeKit.Hap
 {
-    internal record struct Tlv
+    internal enum TlvType : byte
     {
-        public byte Tag;
-        public List<byte> Value;
+        Method = 0x00,
+        Identifier = 0x01,
+        Salt = 0x02,
+        PublicKey = 0x03,
+        Proof = 0x04,
+        EncryptedData = 0x05,
+        State = 0x06,
+        Error = 0x07,
+        Signature = 0x0A,
+    }
 
-        public byte Length;
+    internal enum TlvError : byte
+    {
+        Authentication = 0x02,
     }
 }

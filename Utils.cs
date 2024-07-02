@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.NetworkInformation;
 using System.Text;
@@ -96,6 +97,57 @@ namespace HomeKit
 
             int mask = (2 << (length - 1)) - 1;
             return (ushort)((oldValue >> position) & mask);
+        }
+
+        public static byte[] MergeBytes(params byte[][] bytes)
+        {
+            var length = bytes.Sum(it => it.Length);
+            var result = new byte[length];
+
+            var position = 0;
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                var tempBytes = bytes[i];
+                Array.Copy(tempBytes, 0, result, position, tempBytes.Length);
+                position += tempBytes.Length;
+            }
+
+            return result;
+        }
+
+        public static bool SpansEqual(ReadOnlySpan<byte> b1, ReadOnlySpan<byte> b2)
+        {
+            return b1.SequenceEqual(b2);
+        }
+
+        public static byte[] PadTlsNonce(this byte[] bytes, int totalLen = 12)
+        {
+            var len = bytes.Length;
+            if (len >= totalLen)
+            {
+                return bytes;
+            }
+
+            var loss = totalLen - bytes.Length;
+            var resultList = new List<byte>();
+            for (int i = 0; i < loss; i++)
+            {
+                resultList.Add(0);
+            }
+
+            var result = MergeBytes(resultList.ToArray(), bytes);
+            return result;
+        }
+
+        public static void WriteUtf8Bytes(Span<byte> buffer, ReadOnlySpan<char> value)
+        {
+            Encoding.UTF8.GetBytes(value, buffer);
+        }
+
+        public static void WriteUtf8BytesAlignedToRight(Span<byte> buffer, ReadOnlySpan<char> value)
+        {
+            var offset = buffer.Length - value.Length;
+            Encoding.UTF8.GetBytes(value, buffer[offset..]);
         }
     }
 }
