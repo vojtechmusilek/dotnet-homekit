@@ -143,7 +143,7 @@ namespace HomeKit.Hap
             {
                 ("POST", "/pair-setup") => PairSetup(content, tx),
                 ("POST", "/pair-verify") => PairVerify(content, tx),
-                ("GET", "/accessories") => throw new NotImplementedException(),
+                ("GET", "/accessories") => GetAccessories(content, tx),
                 _ => throw new NotImplementedException(),
             };
         }
@@ -224,12 +224,27 @@ namespace HomeKit.Hap
 
             /// 5.6.2 - 1
             // todo if paired respond unavailable
+            var paired = false;
+            if (paired)
+            {
+                return WriteError(tx, TlvError.Unavailable, 2);
+            }
 
             /// 5.6.2 - 2
             // todo max tries
+            var maxt = false;
+            if (maxt)
+            {
+                return WriteError(tx, TlvError.MaxTries, 2);
+            }
 
             /// 5.6.2 - 3
             // todo busy
+            var busy = false;
+            if (busy)
+            {
+                return WriteError(tx, TlvError.Busy, 2);
+            }
 
             /// 5.6.2 - 4,5,6,7
             Span<byte> salt = stackalloc byte[16];
@@ -249,7 +264,7 @@ namespace HomeKit.Hap
             contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.Salt, salt);
             contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.PublicKey, accessorySrpPublicKey);
 
-            return WriteHttpOkResponse(tx, content);
+            return WriteContent(tx, content);
         }
 
         private int PairSetup_M3(ReadOnlySpan<byte> rx, Span<byte> tx)
@@ -275,7 +290,7 @@ namespace HomeKit.Hap
             contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.State, 4);
             contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.Proof, accessoryProof);
 
-            return WriteHttpOkResponse(tx, content);
+            return WriteContent(tx, content);
         }
 
         private int PairSetup_M5(ReadOnlySpan<byte> rx, Span<byte> tx)
@@ -377,7 +392,7 @@ namespace HomeKit.Hap
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.State, 6);
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.EncryptedData, encryptedDataWithTag_tx);
 
-            return WriteHttpOkResponse(tx, content);
+            return WriteContent(tx, content);
         }
 
         private int PairVerify(ReadOnlySpan<byte> rx, Span<byte> tx)
@@ -441,7 +456,7 @@ namespace HomeKit.Hap
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.PublicKey, accessoryCurve.PublicKey);
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.EncryptedData, encryptedDataWithTag);
 
-            return WriteHttpOkResponse(tx, content);
+            return WriteContent(tx, content);
         }
 
         private int PairVerify_M3(ReadOnlySpan<byte> rx, Span<byte> tx)
@@ -460,7 +475,7 @@ namespace HomeKit.Hap
 
             if (!decrypted)
             {
-                return WriteAuthenticationError(tx, 4);
+                return WriteError(tx, TlvError.Authentication, 4);
             }
 
             /// 5.7.4 - 3
@@ -474,7 +489,7 @@ namespace HomeKit.Hap
             bool found = true;
             if (!found)
             {
-                return WriteAuthenticationError(tx, 4);
+                return WriteError(tx, TlvError.Authentication, 4);
             }
 
             /// 5.7.4 - 4
@@ -491,7 +506,7 @@ namespace HomeKit.Hap
             bool valid = Signer.Validate(iosDeviceSignature, iosDeviceInfo, iosDeviceLTPK);
             if (!valid)
             {
-                return WriteAuthenticationError(tx, 4);
+                return WriteError(tx, TlvError.Authentication, 4);
             }
 
             /// 5.7.4 - 5
@@ -501,21 +516,29 @@ namespace HomeKit.Hap
             Span<byte> content = stackalloc byte[3];
             TlvWriter.WriteTlv(content, TlvType.State, 4);
 
-            return WriteHttpOkResponse(tx, content);
+            return WriteContent(tx, content);
         }
 
-        private static int WriteAuthenticationError(Span<byte> httpBuffer, byte pairingState)
+        private int GetAccessories(Span<byte> rx, Span<byte> tx)
+        {
+            throw new NotImplementedException();
+        }
+
+
+
+
+        private static int WriteError(Span<byte> httpBuffer, TlvError error, byte state)
         {
             Span<byte> content = stackalloc byte[6];
 
             var contentLength = 0;
-            contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.Error, TlvError.Authentication);
-            contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.State, 4);
+            contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.Error, error);
+            contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.State, state);
 
-            return WriteHttpOkResponse(httpBuffer, content);
+            return WriteContent(httpBuffer, content);
         }
 
-        private static int WriteHttpOkResponse(Span<byte> httpBuffer, ReadOnlySpan<byte> content)
+        private static int WriteContent(Span<byte> httpBuffer, ReadOnlySpan<byte> content)
         {
             var httpLength = 0;
             httpLength += HttpWriter.WritePairingOkTest(httpBuffer[httpLength..]);
@@ -523,10 +546,7 @@ namespace HomeKit.Hap
             return httpLength;
         }
 
-        private bool DecryptEncryptedData(
-            Span<byte> decryptedDataBuffer, ReadOnlySpan<byte> encryptedDataWithTag,
-            ReadOnlySpan<byte> inputKeyingMaterial, string salt, string info, string nonce
-        )
+        private static bool DecryptEncryptedData(Span<byte> decryptedDataBuffer, ReadOnlySpan<byte> encryptedDataWithTag, ReadOnlySpan<byte> inputKeyingMaterial, string salt, string info, string nonce)
         {
             try
             {
@@ -547,7 +567,7 @@ namespace HomeKit.Hap
             }
         }
 
-        private void HkdfSha512DeriveKey(Span<byte> outputKeyingMaterialBuffer, ReadOnlySpan<byte> inputKeyingMaterial, string salt, string info)
+        private static void HkdfSha512DeriveKey(Span<byte> outputKeyingMaterialBuffer, ReadOnlySpan<byte> inputKeyingMaterial, string salt, string info)
         {
             Span<byte> saltEncoded = stackalloc byte[salt.Length];
             Utils.WriteUtf8Bytes(saltEncoded, salt);
@@ -558,7 +578,7 @@ namespace HomeKit.Hap
             HKDF.DeriveKey(HashAlgorithmName.SHA512, inputKeyingMaterial, outputKeyingMaterialBuffer, saltEncoded, infoEncoded);
         }
 
-        private void EncryptData(Span<byte> encryptedDataWithTagBuffer, ReadOnlySpan<byte> decryptedData, ReadOnlySpan<byte> inputKeyingMaterial, string salt, string info, string nonce)
+        private static void EncryptData(Span<byte> encryptedDataWithTagBuffer, ReadOnlySpan<byte> decryptedData, ReadOnlySpan<byte> inputKeyingMaterial, string salt, string info, string nonce)
         {
             Span<byte> saltEncoded = stackalloc byte[salt.Length];
             Utils.WriteUtf8Bytes(saltEncoded, salt);

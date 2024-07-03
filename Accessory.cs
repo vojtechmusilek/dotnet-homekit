@@ -30,54 +30,58 @@ namespace HomeKit
         public static byte[] Temporary_SharedSecret_pvM1_pvM3_reqHapDecrypt = null!;
         public static bool Temporary_Ready;
 
+        public int Aid { get; }
+        public List<Service> Services { get; }
 
-        public string Name { get; }
-        public string PinCode { get; }
-        public Category Category { get; }
-        public string SetupId { get; }
-        public string MacAddress { get; }
-        public bool Paired { get; }
-        public ushort Port { get; }
-        public IPAddress IpAddress { get; }
+        private readonly string m_Name;
+        private readonly string m_PinCode;
+        private readonly Category m_Category;
+        private readonly string m_SetupId;
+        private readonly string m_MacAddress;
+        private readonly bool m_Paired;
+        private readonly ushort m_Port;
+        private readonly IPAddress m_IpAddress;
 
         private MdnsClient m_MdnsClient = null!;
 
         /// <param name="pinCode">Format: 000-00-000</param>
         public Accessory(string name, string pinCode, Category category, ILoggerFactory? loggerFactory)
         {
-            Name = name;
-            PinCode = pinCode;
-            Category = category;
-            SetupId = Utils.GenerateSetupId();
-            MacAddress = Utils.GenerateMacAddress();
-            Paired = false;
-            Port = 23232;
-            IpAddress = IPAddress.Parse("192.168.1.101");
+            Aid = 1;
+            Services = new();
+
+            m_Name = name;
+            m_PinCode = pinCode;
+            m_Category = category;
+            m_SetupId = Utils.GenerateSetupId();
+            m_MacAddress = Utils.GenerateMacAddress();
+            m_Paired = false;
+            m_Port = 23232;
+            m_IpAddress = IPAddress.Parse("192.168.1.101");
 
             loggerFactory ??= new NullLoggerFactory();
             m_LoggerFactory = loggerFactory;
             m_Logger = loggerFactory.CreateLogger($"Accessory<{name}>");
 
-            // todo
-            //AddAccessoryInformationService();
+            AddAccessoryInformationService();
         }
 
         public void Publish()
         {
-            if (!Paired)
+            if (!m_Paired)
             {
                 PrintSetupMessage();
             }
 
-            m_Logger.LogTrace("MAC address: {mac}", MacAddress);
-            m_Logger.LogTrace("Port: {port}", Port);
-            m_Logger.LogTrace("Address: {address}", IpAddress);
+            m_Logger.LogTrace("MAC address: {mac}", m_MacAddress);
+            m_Logger.LogTrace("Port: {port}", m_Port);
+            m_Logger.LogTrace("Address: {address}", m_IpAddress);
 
-            var listener = new TcpListener(IPAddress.Any, Port);
+            var listener = new TcpListener(IPAddress.Any, m_Port);
             Task.Run(() => TcpLobbyTask(listener));
 
             var nis = Utils.GetMulticastNetworkInterfaces();
-            var ni = nis.FirstOrDefault(x => x.GetIPProperties().UnicastAddresses.Any(y => y.Address.Equals(IpAddress)));
+            var ni = nis.FirstOrDefault(x => x.GetIPProperties().UnicastAddresses.Any(y => y.Address.Equals(m_IpAddress)));
             if (ni is null)
             {
                 m_Logger.LogError("Failed to find network interface with specified address");
@@ -127,7 +131,7 @@ namespace HomeKit
 
                 m_Logger.LogInformation("Accepted new TCP client {remote}", client.Client.RemoteEndPoint);
 
-                var hapClient = new HapClient(client, PinCode, MacAddress, m_LoggerFactory.CreateLogger<HapClient>());
+                var hapClient = new HapClient(client, m_PinCode, m_MacAddress, m_LoggerFactory.CreateLogger<HapClient>());
                 await hapClient.StartAsync(CancellationToken.None);
             }
         }
@@ -158,8 +162,8 @@ namespace HomeKit
             flags = Utils.SetBits(flags, Const.FlagsQueryOrResponsePosition, 1, 1);
             flags = Utils.SetBits(flags, Const.FlagsAuthoritativeAnswerPosition, 1, 1);
 
-            var mac = MacAddress.Replace(":", "");
-            var identifier = Name + "@" + mac + "." + Const.MdnsHapDomainName;
+            var mac = m_MacAddress.Replace(":", "");
+            var identifier = m_Name + "@" + mac + "." + Const.MdnsHapDomainName;
             var host = mac + "." + Const.MdnsLocal;
 
             var responsePacket = new Packet()
@@ -190,7 +194,7 @@ namespace HomeKit
                             {
                                 Priority = 0,
                                 Weight = 0,
-                                Port = Port,
+                                Port = m_Port,
                                 Target = host,
                             }
                         },
@@ -204,13 +208,13 @@ namespace HomeKit
                             {
                                 KeyValuePairs = new Dictionary<string, string>()
                                 {
-                                    { "md", Name },
-                                    { "id", MacAddress },
-                                    { "ci", Category.GetHashCode().ToString() },
+                                    { "md", m_Name },
+                                    { "id", m_MacAddress },
+                                    { "ci", m_Category.GetHashCode().ToString() },
                                     { "sh", GenerateSetupHash() },
 
-                                    { "s#", Paired ? "2" : "1" }, // todo state 1=unpaired 2=paired
-                                    { "sf", Paired ? "0" : "1" }, // todo status 0=hidden 1=discoverable
+                                    { "s#", m_Paired ? "2" : "1" }, // todo state 1=unpaired 2=paired
+                                    { "sf", m_Paired ? "0" : "1" }, // todo status 0=hidden 1=discoverable
                                 
                                     { "c#", "1" }, // todo config num, increment when accessory changes
                                 
@@ -227,7 +231,7 @@ namespace HomeKit
                             Ttl = Const.ShortTtl,
                             Data = new PacketRecordData_A()
                             {
-                                IpAddress = IpAddress
+                                IpAddress = m_IpAddress
                             }
                         },
                     ],
@@ -238,7 +242,7 @@ namespace HomeKit
 
         private string GenerateSetupHash()
         {
-            var plain = SetupId + MacAddress;
+            var plain = m_SetupId + m_MacAddress;
             var bytes = Encoding.UTF8.GetBytes(plain);
             var hashed = SHA512.HashData(bytes);
             return Convert.ToBase64String(hashed.Take(4).ToArray());
@@ -247,10 +251,10 @@ namespace HomeKit
         private void AddAccessoryInformationService()
         {
             var service = new Service(ServiceType.AccessoryInformation);
-            service.GetCharacteristic(CharacteristicType.Name)!.SetValue(Name);
-            service.GetCharacteristic(CharacteristicType.SerialNumber)!.SetValue("SN-" + Name);
+            service.GetCharacteristic(CharacteristicType.Name)!.SetValue(m_Name);
+            service.GetCharacteristic(CharacteristicType.SerialNumber)!.SetValue("SN-" + m_Name);
 
-            AddService(service);
+            Services.Add(service);
         }
 
         private void AddService(Service service)
@@ -260,10 +264,10 @@ namespace HomeKit
 
         private void PrintSetupMessage()
         {
-            var uri = Utils.GenerateXhmUri(Category, PinCode, SetupId);
+            var uri = Utils.GenerateXhmUri(m_Category, m_PinCode, m_SetupId);
 
             m_Logger.LogTrace("Setup payload: {payload}", uri);
-            m_Logger.LogInformation("Setup pincode: {pincode}", PinCode);
+            m_Logger.LogInformation("Setup pincode: {pincode}", m_PinCode);
 
             var qrGenerator = new QRCodeGenerator();
             var qrCodeData = qrGenerator.CreateQrCode(uri, QRCodeGenerator.ECCLevel.Q);

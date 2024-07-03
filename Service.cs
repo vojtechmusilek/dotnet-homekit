@@ -25,11 +25,24 @@ namespace HomeKit
             }
         }
 
-        public ServiceDef Def { get; set; }
+        private readonly ServiceDef m_Def;
+
+        public int Iid { get; }
+        public string Type { get; }
+        public List<Characteristic> Characteristics { get; }
 
         public Service(ServiceType type)
         {
-            Def = m_Services[type];
+            m_Def = m_Services[type];
+
+            Iid = AccessoryServer.GenerateInstanceId();
+            Type = m_Def.GetHapType();
+            Characteristics = new();
+
+            foreach (var item in m_Def.RequiredCharacteristics)
+            {
+                // todo create
+            }
         }
 
         internal Characteristic? GetCharacteristic(CharacteristicType name)
