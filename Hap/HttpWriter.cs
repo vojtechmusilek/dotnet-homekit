@@ -29,5 +29,12 @@ namespace HomeKit.Hap
             position += content.Length;
             return position;
         }
+
+        public static int WriteNoContent(Span<byte> buffer)
+        {
+            int position = 0;
+            position += Encoding.UTF8.GetBytes("HTTP/1.1 204 No Content\r\n\r\n", buffer[position..]);
+            return position;
+        }
     }
 }

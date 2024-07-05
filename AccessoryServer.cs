@@ -14,6 +14,8 @@ namespace HomeKit
             return Interlocked.Increment(ref m_InstanceCounter);
         }
 
+        public static Dictionary<int, Characteristic> TemporaryCharList = new();
+
         public List<Accessory> Accessories { get; }
 
         public AccessoryServer()

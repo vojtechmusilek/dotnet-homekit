@@ -44,6 +44,8 @@ namespace HomeKit
             {
                 Value = string.Empty;
             }
+
+            AccessoryServer.TemporaryCharList[Iid] = this;
         }
 
         public bool IsType(CharacteristicType type)

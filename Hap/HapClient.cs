@@ -91,8 +91,14 @@ namespace HomeKit.Hap
                 //    var y = m_TcpStream.Read(x);
                 //}
 
+                var encryptionOff = Encoding.UTF8.GetString(m_ReadBuffer)[0] is 'H' or 'P' or 'G';
+
+
 #if DEBUG
-                m_Logger.LogDebug("TCP REQ:\n{data}", Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, requestLength)));
+                if (encryptionOff)
+                {
+                    m_Logger.LogDebug("TCP REQ:\n{data}", Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, requestLength)));
+                }
 #endif
 
                 int responseLength = ProcessRequest(requestLength);
@@ -102,7 +108,10 @@ namespace HomeKit.Hap
                 }
 
 #if DEBUG
-                m_Logger.LogDebug("TCP RES:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, responseLength)));
+                if (encryptionOff)
+                {
+                    m_Logger.LogDebug("TCP RES:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, responseLength)));
+                }
 #endif
 
                 m_Logger.LogInformation("TCP Tx {length}", responseLength);
@@ -125,6 +134,10 @@ namespace HomeKit.Hap
                 var decrypted = DecryptRequest(data);
                 data = decrypted.AsSpan();
                 length = decrypted.Length;
+
+#if DEBUG
+                m_Logger.LogDebug("TCP REQ DECRYPTED:\n{data}", Encoding.UTF8.GetString(data));
+#endif
             }
 
             var plain = Encoding.UTF8.GetString(data);
@@ -134,6 +147,17 @@ namespace HomeKit.Hap
             var method = where[0];
             var path = where[1];
             var version = where[2];
+
+            var query = string.Empty;
+            if (path.Contains('?'))
+            {
+                var split = path.Split('?');
+                if (split.Length == 2)
+                {
+                    path = split[0];
+                    query = split[1];
+                }
+            }
 
             var host = string.Empty;
             var contentLength = 0;
@@ -158,20 +182,24 @@ namespace HomeKit.Hap
 
             var tx = m_WriteBuffer.AsSpan();
 
-            m_Logger.LogWarning("{method}, {path}", method, path);
+            m_Logger.LogWarning("{method}, {path} {query}", method, path, query);
 
             var txLen = (method, path) switch
             {
                 ("POST", "/pair-setup") => PairSetup(content, tx),
                 ("POST", "/pair-verify") => PairVerify(content, tx),
                 ("GET", "/accessories") => GetAccessories(content, tx),
-                ("GET", "/characteristics") => GetCharacteristics(content, tx),
+                ("GET", "/characteristics") => GetCharacteristics(content, tx, query),
                 ("PUT", "/characteristics") => PutCharacteristics(content, tx),
                 _ => throw new NotImplementedException(),
             };
 
             if (!encryptionOff)
             {
+#if DEBUG
+                m_Logger.LogDebug("TCP RES DECRYPTED:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, txLen)));
+#endif
+
                 var encrypted = EncryptResponse(m_WriteBuffer.AsSpan(0, txLen));
                 var newlen = encrypted.Length;
                 encrypted.CopyTo(m_WriteBuffer, 0);
@@ -590,7 +618,7 @@ namespace HomeKit.Hap
             return WritePairingContent(tx, content);
         }
 
-        private int GetAccessories(Span<byte> rx, Span<byte> tx)
+        private int GetAccessories(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
             // tmp 
             var accessoryServer = new AccessoryServer();
@@ -604,14 +632,61 @@ namespace HomeKit.Hap
             return WriteHapContent(tx, jsonbytes);
         }
 
-        private int PutCharacteristics(Span<byte> rx, Span<byte> tx)
+        private int PutCharacteristics(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
-            throw new NotImplementedException();
+            /// 6.7.2
+            var request = JsonSerializer.Deserialize<CharacteristicWriteRequest>(rx, Utils.HapJsonOptions);
+
+            // todo process and if error reply error
+
+            return HttpWriter.WriteNoContent(tx);
         }
 
-        private int GetCharacteristics(Span<byte> rx, Span<byte> tx)
+        private int GetCharacteristics(ReadOnlySpan<byte> rx, Span<byte> tx, string query)
         {
-            throw new NotImplementedException();
+            // "id=1.7,1.5"
+            var queries = query.Split('&');
+
+            var ids = queries.FirstOrDefault(x => x.Split('=')[0] == "id")?.Split('=')[1];
+            if (ids is null)
+            {
+                throw new NotImplementedException();
+            }
+
+            var requests = ids.Split(',');
+
+            var characteristics = new CharacteristicRead[requests.Length];
+
+            for (int i = 0; i < requests.Length; i++)
+            {
+                var split = requests[i].Split('.');
+                if (split.Length == 2)
+                {
+                    var aid = int.Parse(split[0]);
+                    var iid = int.Parse(split[1]);
+
+                    var characteristic = AccessoryServer.TemporaryCharList[iid];
+                    var val = characteristic.Value;
+
+                    characteristics[i] = new CharacteristicRead()
+                    {
+                        Aid = aid,
+                        Iid = iid,
+                        Value = val,
+                        //Status = 0,
+                    };
+                }
+            }
+
+            var response = new CharacteristicReadResponse()
+            {
+                Characteristics = characteristics
+            };
+
+            var json = JsonSerializer.Serialize(response, Utils.HapJsonOptions);
+            var jsonbytes = Encoding.UTF8.GetBytes(json);
+
+            return WriteHapContent(tx, jsonbytes);
         }
 
 
