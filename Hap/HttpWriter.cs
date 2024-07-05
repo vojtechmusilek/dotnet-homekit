@@ -9,17 +9,15 @@ namespace HomeKit.Hap
         {
             int position = 0;
             position += Encoding.UTF8.GetBytes("HTTP/1.1 200 OK\r\n", buffer[position..]);
-            position += Encoding.UTF8.GetBytes("Server: Kestrel\r\n", buffer[position..]);
-            position += Encoding.UTF8.GetBytes($"Date: {DateTime.UtcNow:r}\r\n", buffer[position..]);
             position += Encoding.UTF8.GetBytes($"Content-Type: application/pairing+tlv8\r\n", buffer[position..^0]);
             return position;
         }
 
-        public static int WritePairingOkTest(Span<byte> buffer)
+        public static int WriteHapOk(Span<byte> buffer)
         {
             int position = 0;
             position += Encoding.UTF8.GetBytes("HTTP/1.1 200 OK\r\n", buffer[position..]);
-            position += Encoding.UTF8.GetBytes($"Content-Type: application/pairing+tlv8\r\n", buffer[position..^0]);
+            position += Encoding.UTF8.GetBytes($"Content-Type: application/hap+json\r\n", buffer[position..^0]);
             return position;
         }
 

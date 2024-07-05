@@ -1,5 +1,8 @@
-﻿namespace HomeKit.Resources
+﻿using System.Text.Json.Serialization;
+
+namespace HomeKit.Resources
 {
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public enum CharacteristicType
     {
         None,

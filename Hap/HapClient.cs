@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Ed25519;
@@ -77,9 +78,9 @@ namespace HomeKit.Hap
                     throw new NotImplementedException();
                 }
 
-                //#if DEBUG
-                //                m_Logger.LogDebug("TCP REQ:\n{data}", Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, requestLength)));
-                //#endif
+#if DEBUG
+                m_Logger.LogDebug("TCP REQ:\n{data}", Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, requestLength)));
+#endif
 
                 int responseLength = ProcessRequest(requestLength);
                 if (responseLength == 0)
@@ -87,9 +88,17 @@ namespace HomeKit.Hap
                     continue;
                 }
 
-                //#if DEBUG
-                //                m_Logger.LogDebug("TCP RES:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, responseLength)));
-                //#endif
+                if (Accessory.Temporary_OutReady)
+                {
+                    var encrypted = EncryptResponse(m_WriteBuffer.AsSpan(0, responseLength));
+                    var newlen = encrypted.Length;
+                    encrypted.CopyTo(m_WriteBuffer, 0);
+                    responseLength = newlen;
+                }
+
+#if DEBUG
+                m_Logger.LogDebug("TCP RES:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, responseLength)));
+#endif
 
                 m_Logger.LogInformation("TCP Tx {length}", responseLength);
                 await m_TcpStream.WriteAsync(m_WriteBuffer.AsMemory(0, responseLength), stoppingToken);
@@ -139,6 +148,8 @@ namespace HomeKit.Hap
 
             var tx = m_WriteBuffer.AsSpan();
 
+            m_Logger.LogWarning("{method}, {path}", method, path);
+
             return (method, path) switch
             {
                 ("POST", "/pair-setup") => PairSetup(content, tx),
@@ -150,6 +161,8 @@ namespace HomeKit.Hap
 
         private byte[] DecryptRequest(ReadOnlySpan<byte> data)
         {
+            // todo cleanup
+
             int tagLen = 16;
             int lengthLen = 2;
             int minLen = 1;
@@ -163,7 +176,6 @@ namespace HomeKit.Hap
             );
             var chacha = new ChaCha20Poly1305(hkdf);
 
-            // todo stackalloc
             var result = new List<byte>();
             var dataList = data.ToArray().ToList();
 
@@ -202,6 +214,45 @@ namespace HomeKit.Hap
                 count += 1;
                 dataList = dataList.Skip(dataSize).ToList();
             }
+
+            return result.ToArray();
+        }
+
+        private byte[] EncryptResponse(ReadOnlySpan<byte> data)
+        {
+            // todo cleanup
+
+            var result = new List<byte>();
+            var offset = 0;
+            var total = data.Length;
+            var maxBlockLength = 1024;
+            int count = 0;
+
+            var hkdf = HKDF.DeriveKey(
+                new HashAlgorithmName(nameof(SHA512)), Accessory.Temporary_SharedSecret_pvM1_pvM3_reqHapDecrypt, 32,
+                Encoding.UTF8.GetBytes("Control-Salt"),
+                Encoding.UTF8.GetBytes("Control-Read-Encryption-Key")
+            );
+            var chacha = new ChaCha20Poly1305(hkdf);
+
+            while (offset < total)
+            {
+                var length = Math.Min(total - offset, maxBlockLength);
+                var lengthBytes = BitConverter.GetBytes((ushort)length);
+                var block = data[offset..(offset + length)];
+                var nonce = BitConverter.GetBytes((ulong)count).PadTlsNonce();
+                var encryped = new byte[block.Length];
+                var tag = new byte[16];
+
+                chacha.Encrypt(nonce, block, encryped, tag, lengthBytes);
+
+                offset += length;
+                count += 1;
+                result.AddRange(lengthBytes);
+                result.AddRange(encryped);
+                result.AddRange(tag);
+            }
+
 
             return result.ToArray();
         }
@@ -264,7 +315,7 @@ namespace HomeKit.Hap
             contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.Salt, salt);
             contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.PublicKey, accessorySrpPublicKey);
 
-            return WriteContent(tx, content);
+            return WritePairingContent(tx, content);
         }
 
         private int PairSetup_M3(ReadOnlySpan<byte> rx, Span<byte> tx)
@@ -290,7 +341,7 @@ namespace HomeKit.Hap
             contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.State, 4);
             contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.Proof, accessoryProof);
 
-            return WriteContent(tx, content);
+            return WritePairingContent(tx, content);
         }
 
         private int PairSetup_M5(ReadOnlySpan<byte> rx, Span<byte> tx)
@@ -392,7 +443,7 @@ namespace HomeKit.Hap
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.State, 6);
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.EncryptedData, encryptedDataWithTag_tx);
 
-            return WriteContent(tx, content);
+            return WritePairingContent(tx, content);
         }
 
         private int PairVerify(ReadOnlySpan<byte> rx, Span<byte> tx)
@@ -456,7 +507,7 @@ namespace HomeKit.Hap
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.PublicKey, accessoryCurve.PublicKey);
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.EncryptedData, encryptedDataWithTag);
 
-            return WriteContent(tx, content);
+            return WritePairingContent(tx, content);
         }
 
         private int PairVerify_M3(ReadOnlySpan<byte> rx, Span<byte> tx)
@@ -516,14 +567,22 @@ namespace HomeKit.Hap
             Span<byte> content = stackalloc byte[3];
             TlvWriter.WriteTlv(content, TlvType.State, 4);
 
-            return WriteContent(tx, content);
+            return WritePairingContent(tx, content);
         }
 
         private int GetAccessories(Span<byte> rx, Span<byte> tx)
         {
-            throw new NotImplementedException();
-        }
+            // tmp 
+            var accessoryServer = new AccessoryServer();
+            accessoryServer.Accessories.Add(Accessory.Temporary_Instance);
 
+            var json = JsonSerializer.Serialize(accessoryServer, Utils.HapJsonOptions);
+            var jsonbytes = Encoding.UTF8.GetBytes(json);
+
+            Accessory.Temporary_OutReady = true;
+
+            return WriteHapContent(tx, jsonbytes);
+        }
 
 
 
@@ -535,13 +594,21 @@ namespace HomeKit.Hap
             contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.Error, error);
             contentLength += TlvWriter.WriteTlv(content[contentLength..], TlvType.State, state);
 
-            return WriteContent(httpBuffer, content);
+            return WritePairingContent(httpBuffer, content);
         }
 
-        private static int WriteContent(Span<byte> httpBuffer, ReadOnlySpan<byte> content)
+        private static int WritePairingContent(Span<byte> httpBuffer, ReadOnlySpan<byte> content)
         {
             var httpLength = 0;
-            httpLength += HttpWriter.WritePairingOkTest(httpBuffer[httpLength..]);
+            httpLength += HttpWriter.WritePairingOk(httpBuffer[httpLength..]);
+            httpLength += HttpWriter.WriteContent(httpBuffer[httpLength..], content[..content.Length]);
+            return httpLength;
+        }
+
+        private static int WriteHapContent(Span<byte> httpBuffer, ReadOnlySpan<byte> content)
+        {
+            var httpLength = 0;
+            httpLength += HttpWriter.WriteHapOk(httpBuffer[httpLength..]);
             httpLength += HttpWriter.WriteContent(httpBuffer[httpLength..], content[..content.Length]);
             return httpLength;
         }

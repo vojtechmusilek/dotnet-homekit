@@ -29,6 +29,9 @@ namespace HomeKit
         public static byte[] Temporary_IosDeviceLtpk_psM5_pvM3 = null!;
         public static byte[] Temporary_SharedSecret_pvM1_pvM3_reqHapDecrypt = null!;
         public static bool Temporary_Ready;
+        public static bool Temporary_OutReady;
+
+        public static Accessory Temporary_Instance = null!;
 
         public int Aid { get; }
         public List<Service> Services { get; }
@@ -62,6 +65,8 @@ namespace HomeKit
             loggerFactory ??= new NullLoggerFactory();
             m_LoggerFactory = loggerFactory;
             m_Logger = loggerFactory.CreateLogger($"Accessory<{name}>");
+
+            Temporary_Instance = this;
 
             AddAccessoryInformationService();
         }
@@ -111,6 +116,11 @@ namespace HomeKit
             //{
             //    return;
             //}
+
+            foreach (var q in packet.Questions)
+            {
+                m_Logger.LogWarning(q.ToString());
+            }
 
             var response = RespondToPacket(packet);
             if (response.HasValue)
@@ -208,6 +218,7 @@ namespace HomeKit
                             {
                                 KeyValuePairs = new Dictionary<string, string>()
                                 {
+                                    /// 6.4
                                     { "md", m_Name },
                                     { "id", m_MacAddress },
                                     { "ci", m_Category.GetHashCode().ToString() },
@@ -251,15 +262,17 @@ namespace HomeKit
         private void AddAccessoryInformationService()
         {
             var service = new Service(ServiceType.AccessoryInformation);
-            service.GetCharacteristic(CharacteristicType.Name)!.SetValue(m_Name);
-            service.GetCharacteristic(CharacteristicType.SerialNumber)!.SetValue("SN-" + m_Name);
+            service.GetCharacteristic(CharacteristicType.Name)!.Value = m_Name;
+            service.GetCharacteristic(CharacteristicType.SerialNumber)!.Value = "SN-" + m_Name;
 
             Services.Add(service);
         }
 
-        private void AddService(Service service)
+        public Service AddService(ServiceType type)
         {
-            throw new NotImplementedException();
+            var service = new Service(type);
+            Services.Add(service);
+            return service;
         }
 
         private void PrintSetupMessage()

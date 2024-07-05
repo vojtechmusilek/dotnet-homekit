@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.NetworkInformation;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using HomeKit.Resources;
 
 namespace HomeKit
@@ -10,6 +12,19 @@ namespace HomeKit
     public static class Utils
     {
         private const string m_AlphaNumChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+        public static readonly JsonSerializerOptions HapJsonOptions = new()
+        {
+            ReadCommentHandling = JsonCommentHandling.Skip,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        };
+
+        public static readonly JsonSerializerOptions HapDefJsonOptions = new()
+        {
+            ReadCommentHandling = JsonCommentHandling.Skip,
+            AllowTrailingCommas = true,
+        };
 
         public static string ConvertToBase36(long value)
         {
@@ -148,6 +163,18 @@ namespace HomeKit
         {
             var offset = buffer.Length - value.Length;
             Encoding.UTF8.GetBytes(value, buffer[offset..]);
+        }
+
+        public static string GetHapType(Guid uuid)
+        {
+            var uppercaseUuid = uuid.ToString().ToUpper();
+
+            if (uppercaseUuid.EndsWith("0000-1000-8000-0026BB765291"))
+            {
+                return uppercaseUuid.Split('-')[0].TrimStart('0');
+            }
+
+            return uppercaseUuid;
         }
     }
 }

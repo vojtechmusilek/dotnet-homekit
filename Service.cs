@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
@@ -18,7 +17,7 @@ namespace HomeKit
             var resource = resources.First(x => x.Contains("Services.json"));
 
             using var stream = assembly.GetManifestResourceStream(resource)!;
-            var deserialized = JsonSerializer.Deserialize<ServiceDef[]>(stream)!;
+            var deserialized = JsonSerializer.Deserialize<ServiceDef[]>(stream, Utils.HapDefJsonOptions)!;
             foreach (var item in deserialized)
             {
                 m_Services.Add(item.Type, item);
@@ -31,23 +30,35 @@ namespace HomeKit
         public string Type { get; }
         public List<Characteristic> Characteristics { get; }
 
-        public Service(ServiceType type)
+        public Service(ServiceType serviceType)
         {
-            m_Def = m_Services[type];
+            m_Def = m_Services[serviceType];
 
+            Type = Utils.GetHapType(m_Def.Uuid);
             Iid = AccessoryServer.GenerateInstanceId();
-            Type = m_Def.GetHapType();
             Characteristics = new();
 
-            foreach (var item in m_Def.RequiredCharacteristics)
+            foreach (var type in m_Def.RequiredCharacteristics)
             {
-                // todo create
+                Characteristics.Add(new Characteristic(type));
             }
         }
 
-        internal Characteristic? GetCharacteristic(CharacteristicType name)
+        public Characteristic? AddCharacteristic(CharacteristicType type)
         {
-            throw new NotImplementedException();
+            if (!m_Def.OptionalCharacteristics.Contains(type))
+            {
+                return null;
+            }
+
+            var characteristic = new Characteristic(type);
+            Characteristics.Add(characteristic);
+            return characteristic;
+        }
+
+        public Characteristic? GetCharacteristic(CharacteristicType type)
+        {
+            return Characteristics.Find(x => x.IsType(type));
         }
     }
 }

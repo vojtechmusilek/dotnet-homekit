@@ -1,25 +1,54 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Text.Json;
 using HomeKit.Resources;
 
 namespace HomeKit
 {
+    /// 6.3.3
     public class Characteristic
     {
-        public int Iid { get; }
-        public string Format { get; }
+        private static readonly Dictionary<CharacteristicType, CharacteristicDef> m_Characteristics = new();
+
+        static Characteristic()
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            var resources = assembly.GetManifestResourceNames();
+            var resource = resources.First(x => x.Contains("Characteristics.json"));
+
+            using var stream = assembly.GetManifestResourceStream(resource)!;
+            var deserialized = JsonSerializer.Deserialize<CharacteristicDef[]>(stream, Utils.HapDefJsonOptions)!;
+            foreach (var item in deserialized)
+            {
+                m_Characteristics.Add(item.Type, item);
+            }
+        }
+
+        private readonly CharacteristicDef m_Def;
+
         public string Type { get; }
-        public List<string> Perms { get; }
-        public object Value { get; }
+        public int Iid { get; }
+        public object? Value { get; set; }
+        public List<string> Perms => m_Def.Permissions;
+        public string Format => m_Def.Format;
 
         public Characteristic(CharacteristicType type)
         {
+            m_Def = m_Characteristics[type];
 
+            Type = Utils.GetHapType(m_Def.Uuid);
+            Iid = AccessoryServer.GenerateInstanceId();
+
+            if (m_Def.Format == "string")
+            {
+                Value = string.Empty;
+            }
         }
 
-        public void SetValue(object value)
+        public bool IsType(CharacteristicType type)
         {
-            throw new NotImplementedException();
+            return m_Def.Type == type;
         }
     }
 }

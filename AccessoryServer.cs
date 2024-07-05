@@ -1,4 +1,5 @@
-﻿using System.Threading;
+﻿using System.Collections.Generic;
+using System.Threading;
 
 namespace HomeKit
 {
@@ -13,8 +14,16 @@ namespace HomeKit
             return Interlocked.Increment(ref m_InstanceCounter);
         }
 
+        public List<Accessory> Accessories { get; }
+
+        public AccessoryServer()
+        {
+            Accessories = new();
+
+
+        }
+
         // todo
-        // Accessories
         // Pin, Mac, Ip, ...
     }
 }

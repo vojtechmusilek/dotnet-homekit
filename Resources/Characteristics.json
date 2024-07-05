@@ -952,18 +952,18 @@
         "MinStep": 1,
         "MinValue": 0
     },
-    {
-        "Type": "PM2.5Density",
-        "Format": "float",
-        "Permissions": [
-            "pr",
-            "ev"
-        ],
-        "Uuid": "000000C6-0000-1000-8000-0026BB765291",
-        "MaxValue": 1000,
-        "MinStep": 1,
-        "MinValue": 0
-    },
+    //{
+    //    "Type": "PM2.5Density",
+    //    "Format": "float",
+    //    "Permissions": [
+    //        "pr",
+    //        "ev"
+    //    ],
+    //    "Uuid": "000000C6-0000-1000-8000-0026BB765291",
+    //    "MaxValue": 1000,
+    //    "MinStep": 1,
+    //    "MinValue": 0
+    //},
     {
         "Type": "PairSetup",
         "Format": "tlv8",
