@@ -139,6 +139,13 @@ namespace HomeKit
 
                 var client = await listener.AcceptTcpClientAsync();
 
+                if (client.Client.RemoteEndPoint?.ToString()?.Contains("192.168.1.111") ?? false)
+                {
+                    m_Logger.LogWarning("ignoring H.");
+                    client.Close();
+                    continue;
+                }
+
                 m_Logger.LogInformation("Accepted new TCP client {remote}", client.Client.RemoteEndPoint);
 
                 var hapClient = new HapClient(client, m_PinCode, m_MacAddress, m_LoggerFactory.CreateLogger<HapClient>());

@@ -28,6 +28,9 @@ namespace HomeKit.Hap
         private readonly byte[] m_ReadBuffer;
         private readonly byte[] m_WriteBuffer;
 
+        private int m_InCount = 0;
+        private int m_OutCount = 0;
+
         private Task m_ReceiverTask = null!;
         private CancellationTokenSource m_StoppingToken = null!;
 
@@ -62,8 +65,12 @@ namespace HomeKit.Hap
 
         private async Task ReceiverTask(CancellationToken stoppingToken)
         {
+            var semaphorslim = new SemaphoreSlim(1, 1);
+
             while (!stoppingToken.IsCancellationRequested && m_TcpClient.Connected)
             {
+                await semaphorslim.WaitAsync(stoppingToken);
+
                 var requestLength = await m_TcpStream.ReadAsync(m_ReadBuffer, stoppingToken);
                 m_Logger.LogInformation("TCP Rx {length}", requestLength);
 
@@ -78,6 +85,12 @@ namespace HomeKit.Hap
                     throw new NotImplementedException();
                 }
 
+                //if (requestLength == 200)
+                //{
+                //    var x = new byte[2100];
+                //    var y = m_TcpStream.Read(x);
+                //}
+
 #if DEBUG
                 m_Logger.LogDebug("TCP REQ:\n{data}", Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, requestLength)));
 #endif
@@ -88,20 +101,14 @@ namespace HomeKit.Hap
                     continue;
                 }
 
-                if (Accessory.Temporary_OutReady)
-                {
-                    var encrypted = EncryptResponse(m_WriteBuffer.AsSpan(0, responseLength));
-                    var newlen = encrypted.Length;
-                    encrypted.CopyTo(m_WriteBuffer, 0);
-                    responseLength = newlen;
-                }
-
 #if DEBUG
                 m_Logger.LogDebug("TCP RES:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, responseLength)));
 #endif
 
                 m_Logger.LogInformation("TCP Tx {length}", responseLength);
                 await m_TcpStream.WriteAsync(m_WriteBuffer.AsMemory(0, responseLength), stoppingToken);
+
+                semaphorslim.Release();
             }
 
             m_Logger.LogInformation("Closing TCP client {remote}", m_Socket.RemoteEndPoint);
@@ -111,10 +118,13 @@ namespace HomeKit.Hap
         private int ProcessRequest(int length)
         {
             var data = m_ReadBuffer.AsSpan()[0..length];
-            if (Accessory.Temporary_Ready)
+            var encryptionOff = Encoding.UTF8.GetString(data)[0] is 'H' or 'P' or 'G';
+
+            if (!encryptionOff)
             {
                 var decrypted = DecryptRequest(data);
                 data = decrypted.AsSpan();
+                length = decrypted.Length;
             }
 
             var plain = Encoding.UTF8.GetString(data);
@@ -150,13 +160,25 @@ namespace HomeKit.Hap
 
             m_Logger.LogWarning("{method}, {path}", method, path);
 
-            return (method, path) switch
+            var txLen = (method, path) switch
             {
                 ("POST", "/pair-setup") => PairSetup(content, tx),
                 ("POST", "/pair-verify") => PairVerify(content, tx),
                 ("GET", "/accessories") => GetAccessories(content, tx),
+                ("GET", "/characteristics") => GetCharacteristics(content, tx),
+                ("PUT", "/characteristics") => PutCharacteristics(content, tx),
                 _ => throw new NotImplementedException(),
             };
+
+            if (!encryptionOff)
+            {
+                var encrypted = EncryptResponse(m_WriteBuffer.AsSpan(0, txLen));
+                var newlen = encrypted.Length;
+                encrypted.CopyTo(m_WriteBuffer, 0);
+                txLen = newlen;
+            }
+
+            return txLen;
         }
 
         private byte[] DecryptRequest(ReadOnlySpan<byte> data)
@@ -168,7 +190,6 @@ namespace HomeKit.Hap
             int minLen = 1;
             int minBlockLen = lengthLen + tagLen + minLen;
 
-            int count = 0;
             var hkdf = HKDF.DeriveKey(
                 new HashAlgorithmName(nameof(SHA512)), Accessory.Temporary_SharedSecret_pvM1_pvM3_reqHapDecrypt, 32,
                 Encoding.UTF8.GetBytes("Control-Salt"),
@@ -192,7 +213,7 @@ namespace HomeKit.Hap
 
                 dataList = dataList.Skip(lengthLen).ToList();
                 var dataSize = blockSize + tagLen;
-                var nonce = BitConverter.GetBytes((ulong)count).PadTlsNonce();
+                var nonce = BitConverter.GetBytes((ulong)m_InCount).PadTlsNonce();
 
                 var encryptedDataWithTag = dataList.Take(dataSize).ToArray();
                 var encryptedData = encryptedDataWithTag[..^16];
@@ -211,7 +232,7 @@ namespace HomeKit.Hap
                 }
 
                 result.AddRange(decryptedData);
-                count += 1;
+                m_InCount += 1;
                 dataList = dataList.Skip(dataSize).ToList();
             }
 
@@ -226,7 +247,6 @@ namespace HomeKit.Hap
             var offset = 0;
             var total = data.Length;
             var maxBlockLength = 1024;
-            int count = 0;
 
             var hkdf = HKDF.DeriveKey(
                 new HashAlgorithmName(nameof(SHA512)), Accessory.Temporary_SharedSecret_pvM1_pvM3_reqHapDecrypt, 32,
@@ -240,14 +260,14 @@ namespace HomeKit.Hap
                 var length = Math.Min(total - offset, maxBlockLength);
                 var lengthBytes = BitConverter.GetBytes((ushort)length);
                 var block = data[offset..(offset + length)];
-                var nonce = BitConverter.GetBytes((ulong)count).PadTlsNonce();
+                var nonce = BitConverter.GetBytes((ulong)m_OutCount).PadTlsNonce();
                 var encryped = new byte[block.Length];
                 var tag = new byte[16];
 
                 chacha.Encrypt(nonce, block, encryped, tag, lengthBytes);
 
                 offset += length;
-                count += 1;
+                m_OutCount += 1;
                 result.AddRange(lengthBytes);
                 result.AddRange(encryped);
                 result.AddRange(tag);
@@ -582,6 +602,16 @@ namespace HomeKit.Hap
             Accessory.Temporary_OutReady = true;
 
             return WriteHapContent(tx, jsonbytes);
+        }
+
+        private int PutCharacteristics(Span<byte> rx, Span<byte> tx)
+        {
+            throw new NotImplementedException();
+        }
+
+        private int GetCharacteristics(Span<byte> rx, Span<byte> tx)
+        {
+            throw new NotImplementedException();
         }
 
 
