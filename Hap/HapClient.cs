@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Sockets;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -26,6 +25,7 @@ namespace HomeKit.Hap
         private readonly string m_MacAddress;
 
         private readonly Srp6aServer m_SrpServer = new();
+        private readonly HapAead m_Aead;
 
         private readonly byte[] m_ReadBuffer = new byte[2048];
         private readonly byte[] m_WriteBuffer = new byte[2048];
@@ -33,17 +33,6 @@ namespace HomeKit.Hap
         private readonly byte[] m_AccessoryCurvePk = new byte[32];
         private readonly byte[] m_IosDeviceCurvePk = new byte[32];
         private readonly byte[] m_SharedSecret = new byte[32];
-
-        private bool m_AeadRxEnabled = false;
-        private bool m_AeadTxEnabled = false;
-
-        private int m_AeadRxCount = 0;
-        private int m_AeadTxCount = 0;
-
-        private ChaCha20Poly1305? m_AeadRxKey;
-        private ChaCha20Poly1305? m_AeadTxKey;
-
-        private readonly HapAead m_AeadTx = new();
 
         private readonly string m_RemoteIp;
 
@@ -59,6 +48,8 @@ namespace HomeKit.Hap
 
             m_Socket = tcpClient.Client;
             m_TcpStream = tcpClient.GetStream();
+
+            m_Aead = new(logger);
 
             m_RemoteIp = m_Socket.RemoteEndPoint?.ToString() ?? "uknown";
         }
@@ -81,7 +72,7 @@ namespace HomeKit.Hap
             while (!stoppingToken.IsCancellationRequested && m_TcpClient.Connected)
             {
                 var requestLength = await m_TcpStream.ReadAtLeastAsync(m_ReadBuffer, 1, false, stoppingToken);
-                m_Logger.LogInformation("TCP Rx {length}", requestLength);
+                m_Logger.LogTrace("TCP Rx {length}", requestLength);
 
                 if (requestLength == 0)
                 {
@@ -93,7 +84,7 @@ namespace HomeKit.Hap
                     throw new NotImplementedException("Read buffer overflow");
                 }
 
-                var encryptionOff = Encoding.UTF8.GetString(m_ReadBuffer)[0] is 'H' or 'P' or 'G';
+                //var encryptionOff = Encoding.UTF8.GetString(m_ReadBuffer)[0] is 'H' or 'P' or 'G';
 
 
                 //#if DEBUG
@@ -118,7 +109,7 @@ namespace HomeKit.Hap
                     //                }
                     //#endif
 
-                    m_Logger.LogInformation("TCP Tx {length}", responseLength);
+                    m_Logger.LogTrace("TCP Tx {length}", responseLength);
                     await m_TcpStream.WriteAsync(m_WriteBuffer.AsMemory(0, responseLength), stoppingToken);
                 }
                 catch (Exception ex)
@@ -131,24 +122,13 @@ namespace HomeKit.Hap
             m_TcpClient.Close();
         }
 
-        private int ProcessRequest(int length)
+        private int ProcessRequest(int rxLength)
         {
-            var data = m_ReadBuffer.AsSpan()[0..length];
+            rxLength = m_Aead.Decrypt(m_ReadBuffer.AsSpan(0, rxLength), m_ReadBuffer.AsSpan());
 
-            if (m_AeadRxEnabled)
-            {
-                m_AeadTxEnabled = true;
+            //m_Logger.LogDebug("TCP REQ DECRYPTED:\n{data}", Encoding.UTF8.GetString(data));
 
-                var decrypted = DecryptRequest(data);
-                data = decrypted.AsSpan();
-                length = decrypted.Length;
-
-                //#if DEBUG
-                //                m_Logger.LogDebug("TCP REQ DECRYPTED:\n{data}", Encoding.UTF8.GetString(data));
-                //#endif
-            }
-
-            var plain = Encoding.UTF8.GetString(data);
+            var plain = Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, rxLength));
             var plainHeaders = plain.Split(Environment.NewLine);
             var where = plainHeaders[0].Split(' ');
 
@@ -182,10 +162,10 @@ namespace HomeKit.Hap
                 }
             }
 
-            Span<byte> content = Span<byte>.Empty;
+            Span<byte> rx = Span<byte>.Empty;
             if (contentLength > 0)
             {
-                content = data.Slice(length - contentLength, contentLength);
+                rx = m_ReadBuffer.AsSpan(rxLength - contentLength, contentLength);
             }
 
             var tx = m_WriteBuffer.AsSpan();
@@ -194,76 +174,20 @@ namespace HomeKit.Hap
 
             var txLength = (method, path) switch
             {
-                ("POST", "/pair-setup") => PairSetup(content, tx),
-                ("POST", "/pair-verify") => PairVerify(content, tx),
-                ("POST", "/pairings") => Pairings(content, tx),
-                ("GET", "/accessories") => GetAccessories(content, tx),
-                ("GET", "/characteristics") => GetCharacteristics(content, tx, query),
-                ("PUT", "/characteristics") => PutCharacteristics(content, tx),
+                ("POST", "/pair-setup") => PairSetup(rx, tx),
+                ("POST", "/pair-verify") => PairVerify(rx, tx),
+                ("POST", "/pairings") => Pairings(rx, tx),
+                ("GET", "/accessories") => GetAccessories(rx, tx),
+                ("GET", "/characteristics") => GetCharacteristics(rx, tx, query),
+                ("PUT", "/characteristics") => PutCharacteristics(rx, tx),
                 _ => throw new NotImplementedException($"Method {method}, {path}, {query}"),
             };
 
-            if (m_AeadTxEnabled)
-            {
-                //#if DEBUG
-                //                m_Logger.LogDebug("TCP RES DECRYPTED:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, txLen)));
-                //#endif
+            txLength = m_Aead.Encrypt(m_WriteBuffer.AsSpan(0, txLength), m_WriteBuffer.AsSpan());
 
-                txLength = m_AeadTx.Encrypt(m_WriteBuffer.AsSpan(0, txLength), m_WriteBuffer.AsSpan());
-            }
+            // m_Logger.LogDebug("TCP RES DECRYPTED:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, txLen)));
 
             return txLength;
-        }
-
-        private byte[] DecryptRequest(ReadOnlySpan<byte> data)
-        {
-            // todo cleanup
-
-            int tagLen = 16;
-            int lengthLen = 2;
-            int minLen = 1;
-            int minBlockLen = lengthLen + tagLen + minLen;
-
-            var result = new List<byte>();
-            var dataList = data.ToArray().ToList();
-
-            while (dataList.Count > minBlockLen)
-            {
-                var blockLengthBytes = dataList.Take(2).ToList();
-                var blockSize = BitConverter.ToUInt16(blockLengthBytes.ToArray());
-
-                var blockSizeWithLength = lengthLen + blockSize + tagLen;
-                if (dataList.Count < blockSizeWithLength)
-                {
-                    return result.ToArray();
-                }
-
-                dataList = dataList.Skip(lengthLen).ToList();
-                var dataSize = blockSize + tagLen;
-                var nonce = BitConverter.GetBytes((ulong)m_AeadRxCount).PadTlsNonce();
-
-                var encryptedDataWithTag = dataList.Take(dataSize).ToArray();
-                var encryptedData = encryptedDataWithTag[..^16];
-                byte[] tag = encryptedDataWithTag[^16..];
-
-                var decryptedData = new byte[encryptedData.Length];
-
-                try
-                {
-                    m_AeadRxKey!.Decrypt(nonce, encryptedData, tag, decryptedData, blockLengthBytes.ToArray());
-                }
-                catch (Exception excc)
-                {
-                    m_Logger.LogError(excc, "hap decrypt fail");
-                    throw;
-                }
-
-                result.AddRange(decryptedData);
-                m_AeadRxCount += 1;
-                dataList = dataList.Skip(dataSize).ToList();
-            }
-
-            return result.ToArray();
         }
 
         private int PairSetup(ReadOnlySpan<byte> rx, Span<byte> tx)
@@ -573,7 +497,7 @@ namespace HomeKit.Hap
             }
 
             /// 5.7.4 - 5
-            EnableAead();
+            m_Aead.Enable(m_SharedSecret);
 
             return WritePairingState(tx, 4);
         }
@@ -793,20 +717,7 @@ namespace HomeKit.Hap
 
 
 
-        private void EnableAead()
-        {
-            Span<byte> hkdf = stackalloc byte[32];
 
-            Crypto.HkdfSha512DeriveKey(hkdf, m_SharedSecret, "Control-Salt", "Control-Write-Encryption-Key");
-            m_AeadRxKey = new ChaCha20Poly1305(hkdf);
-
-            Crypto.HkdfSha512DeriveKey(hkdf, m_SharedSecret, "Control-Salt", "Control-Read-Encryption-Key");
-            m_AeadTxKey = new ChaCha20Poly1305(hkdf);
-
-            m_AeadTx.Enable(m_SharedSecret, "Control-Read-Encryption-Key");
-
-            m_AeadRxEnabled = true;
-        }
 
         private static int WriteError(Span<byte> httpBuffer, TlvError error, byte state)
         {

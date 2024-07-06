@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Security.Cryptography;
+using Microsoft.Extensions.Logging;
 
 namespace HomeKit.Hap
 {
@@ -7,27 +8,40 @@ namespace HomeKit.Hap
     {
         private const int m_MaxBlockLength = 1024;
 
-        private ChaCha20Poly1305? m_Key;
-        private ulong m_Count = 0;
+        private readonly ILogger m_Logger;
 
-        public HapAead()
+        private ChaCha20Poly1305 m_RxKey = null!;
+        private ChaCha20Poly1305 m_TxKey = null!;
+
+        private ulong m_RxCount = 0;
+        private ulong m_TxCount = 0;
+
+        private bool m_RxEnabled = false;
+        private bool m_TxEnabled = false;
+
+        public HapAead(ILogger logger)
         {
-
+            m_Logger = logger;
         }
 
-        public void Enable(ReadOnlySpan<byte> sharedSecret, string info)
+        public void Enable(ReadOnlySpan<byte> sharedSecret)
         {
             Span<byte> hkdf = stackalloc byte[32];
 
-            Crypto.HkdfSha512DeriveKey(hkdf, sharedSecret, "Control-Salt", info);
-            m_Key = new ChaCha20Poly1305(hkdf);
+            Crypto.HkdfSha512DeriveKey(hkdf, sharedSecret, "Control-Salt", "Control-Write-Encryption-Key");
+            m_RxKey = new ChaCha20Poly1305(hkdf);
+
+            Crypto.HkdfSha512DeriveKey(hkdf, sharedSecret, "Control-Salt", "Control-Read-Encryption-Key");
+            m_TxKey = new ChaCha20Poly1305(hkdf);
+
+            m_RxEnabled = true;
         }
 
         public int Encrypt(ReadOnlySpan<byte> data, Span<byte> buffer)
         {
-            if (m_Key is null)
+            if (!m_TxEnabled)
             {
-                return buffer.Length;
+                return data.Length;
             }
 
             Span<byte> copy = stackalloc byte[data.Length];
@@ -45,11 +59,19 @@ namespace HomeKit.Hap
             {
                 var blockLength = (ushort)Math.Min(copy.Length - copyPosition, m_MaxBlockLength);
                 BitConverter.TryWriteBytes(asocdata, blockLength);
-                BitConverter.TryWriteBytes(nonce[4..], m_Count++);
+                BitConverter.TryWriteBytes(nonce[4..], m_TxCount++);
                 var block = copy.Slice(copyPosition, blockLength);
                 copyPosition += blockLength;
 
-                m_Key.Encrypt(nonce, block, ciphertext[..block.Length], tag, asocdata);
+                try
+                {
+                    m_TxKey.Encrypt(nonce, block, ciphertext[..block.Length], tag, asocdata);
+                }
+                catch (Exception ex)
+                {
+                    m_Logger.LogError(ex, "Encryption failed");
+                    return 0;
+                }
 
                 asocdata.CopyTo(buffer[bufferPosition..]);
                 bufferPosition += asocdata.Length;
@@ -64,14 +86,48 @@ namespace HomeKit.Hap
             return bufferPosition;
         }
 
-        public int Decrypt(Span<byte> data)
+        public int Decrypt(ReadOnlySpan<byte> data, Span<byte> buffer)
         {
-            if (m_Key is null)
+            if (!m_RxEnabled)
             {
                 return data.Length;
             }
 
-            throw new NotImplementedException();
+            m_TxEnabled = true;
+
+            var dataPosition = 0;
+            var bufferPosition = 0;
+
+            Span<byte> nonce = stackalloc byte[12];
+
+            while (dataPosition < data.Length)
+            {
+                var asocdata = data.Slice(dataPosition, 2);
+                dataPosition += 2;
+
+                BitConverter.TryWriteBytes(nonce[4..], m_RxCount++);
+
+                var blockLength = BitConverter.ToUInt16(asocdata);
+
+                var ciphertext = data.Slice(dataPosition, blockLength);
+                dataPosition += blockLength;
+
+                var tag = data.Slice(dataPosition, 16);
+                dataPosition += 16;
+
+                try
+                {
+                    m_RxKey.Decrypt(nonce, ciphertext, tag, buffer.Slice(bufferPosition, ciphertext.Length), asocdata);
+                    bufferPosition += ciphertext.Length;
+                }
+                catch (Exception ex)
+                {
+                    m_Logger.LogError(ex, "Decryption failed");
+                    return 0;
+                }
+            }
+
+            return bufferPosition;
         }
     }
 }
