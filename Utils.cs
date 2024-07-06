@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Buffers;
+using System.Buffers.Text;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.NetworkInformation;
@@ -175,6 +177,26 @@ namespace HomeKit
             }
 
             return uppercaseUuid;
+        }
+
+        public static Guid ReadUtf8Identifier(ReadOnlySpan<byte> identifier)
+        {
+            if (Utf8Parser.TryParse(identifier, out Guid guid, out int bytesConsumed))
+            {
+                return guid;
+            }
+
+            throw new Exception("Failed to read guid");
+        }
+
+        public static int WriteUtf8Identifier(Guid identifier, Span<byte> buffer)
+        {
+            if (Utf8Formatter.TryFormat(identifier, buffer, out int bytesWritten, new StandardFormat('D')))
+            {
+                return bytesWritten;
+            }
+
+            throw new Exception("Failed to write guid");
         }
     }
 }

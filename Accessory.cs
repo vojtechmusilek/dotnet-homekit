@@ -21,15 +21,9 @@ namespace HomeKit
         private readonly ILoggerFactory m_LoggerFactory;
         private readonly ILogger m_Logger;
 
-        // temporary for debugging
-        public static byte[] Temporary_AccessoryCurvePk_pvM1_pvM3 = null!;
-        public static byte[] Temporary_IosDeviceCurvePk_pvM1_pvM3 = null!;
-        public static byte[] Temporary_AccessoryLtSk_psM5_pvM1 = null!;
-        public static byte[] Temporary_AccessoryLtPk_psM5_pvM1 = null!;
-        public static byte[] Temporary_IosDeviceLtPk_psM5_pvM3 = null!;
-        public static byte[] Temporary_SharedSecret_pvM1_pvM3_reqHapDecrypt = null!;
-        public static bool Temporary_Ready;
-        public static bool Temporary_OutReady;
+        // todo not static
+        public static byte[] AccessoryLtSk = null!;
+        public static byte[] AccessoryLtPk = null!;
 
         public static Accessory Temporary_Instance = null!;
 
