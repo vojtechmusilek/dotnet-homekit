@@ -23,7 +23,7 @@
     internal enum TlvMethod : byte
     {
         PairSetup = 0x00,
-        PairSetupwithAuth = 0x01,
+        PairSetupWithAuth = 0x01,
         PairVerify = 0x02,
         AddPairing = 0x03,
         RemovePairing = 0x04,

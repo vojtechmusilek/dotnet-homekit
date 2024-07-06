@@ -84,30 +84,13 @@ namespace HomeKit.Hap
                     throw new NotImplementedException("Read buffer overflow");
                 }
 
-                //var encryptionOff = Encoding.UTF8.GetString(m_ReadBuffer)[0] is 'H' or 'P' or 'G';
-
-
-                //#if DEBUG
-                //                if (encryptionOff)
-                //                {
-                //                    m_Logger.LogDebug("TCP REQ:\n{data}", Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, requestLength)));
-                //                }
-                //#endif
-
                 try
                 {
                     int responseLength = ProcessRequest(requestLength);
                     if (responseLength == 0)
                     {
-                        continue;
+                        break;
                     }
-
-                    //#if DEBUG
-                    //                if (encryptionOff)
-                    //                {
-                    //                    m_Logger.LogDebug("TCP RES:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, responseLength)));
-                    //                }
-                    //#endif
 
                     m_Logger.LogTrace("TCP Tx {length}", responseLength);
                     await m_TcpStream.WriteAsync(m_WriteBuffer.AsMemory(0, responseLength), stoppingToken);
@@ -126,7 +109,7 @@ namespace HomeKit.Hap
         {
             rxLength = m_Aead.Decrypt(m_ReadBuffer.AsSpan(0, rxLength), m_ReadBuffer.AsSpan());
 
-            //m_Logger.LogDebug("TCP REQ DECRYPTED:\n{data}", Encoding.UTF8.GetString(data));
+            m_Logger.LogDebug("REQ:\n{data}", Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, rxLength)));
 
             var plain = Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, rxLength));
             var plainHeaders = plain.Split(Environment.NewLine);
@@ -183,9 +166,10 @@ namespace HomeKit.Hap
                 _ => throw new NotImplementedException($"Method {method}, {path}, {query}"),
             };
 
+            m_Logger.LogDebug("RES:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, txLength)));
+
             txLength = m_Aead.Encrypt(m_WriteBuffer.AsSpan(0, txLength), m_WriteBuffer.AsSpan());
 
-            // m_Logger.LogDebug("TCP RES DECRYPTED:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, txLen)));
 
             return txLength;
         }
@@ -344,10 +328,8 @@ namespace HomeKit.Hap
             /// M6 Response Generation
 
             /// 5.6.6.2 - 1
-            var accessoryLtSk = Signer.GeneratePrivateKey();
-            var accessoryLtPk = accessoryLtSk.ExtractPublicKey();
-            Accessory.AccessoryLtSk = accessoryLtSk.ToArray();
-            Accessory.AccessoryLtPk = accessoryLtPk.ToArray();
+            var accessoryLtSk = Accessory.AccessoryLtSk;
+            var accessoryLtPk = Accessory.AccessoryLtPk;
 
             /// 5.6.6.2 - 2
             Span<byte> accessoryX = stackalloc byte[32];
@@ -521,6 +503,8 @@ namespace HomeKit.Hap
 
         private int AddPairing(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
+            m_Logger.LogInformation("Add pairing");
+
             /// 5.10.2 - 1
             // todo
 
@@ -567,6 +551,8 @@ namespace HomeKit.Hap
 
         private int RemovePairing(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
+            m_Logger.LogInformation("Remove pairing");
+
             /// 5.11.2 - 1
             // todo
 
@@ -595,6 +581,8 @@ namespace HomeKit.Hap
 
         private int ListPairings(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
+            m_Logger.LogInformation("List pairings");
+
             /// 5.12.2 - 1
             // todo
 

@@ -45,6 +45,26 @@ namespace HomeKit
                 Value = string.Empty;
             }
 
+            //if (m_Def.Format == "bool")
+            //{
+            //    Value = false;
+            //}
+
+            //if (m_Def.ValidValues is not null)
+            //{
+            //    Value = m_Def.ValidValues.First().Value;
+            //}
+
+            //if (m_Def.MinValue is not null)
+            //{
+            //    Value = m_Def.MinValue.Value;
+            //}
+
+            //if (Value is null)
+            //{
+            //    throw new NotImplementedException();
+            //}
+
             AccessoryServer.TemporaryCharList[Iid] = this;
         }
 

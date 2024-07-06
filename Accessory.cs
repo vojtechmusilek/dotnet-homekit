@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Ed25519;
 using HomeKit.Hap;
 using HomeKit.Mdns;
 using HomeKit.Resources;
@@ -22,8 +23,8 @@ namespace HomeKit
         private readonly ILogger m_Logger;
 
         // todo not static
-        public static byte[] AccessoryLtSk = null!;
-        public static byte[] AccessoryLtPk = null!;
+        public static byte[] AccessoryLtSk;
+        public static byte[] AccessoryLtPk;
 
         public static Accessory Temporary_Instance = null!;
 
@@ -64,6 +65,14 @@ namespace HomeKit
             Temporary_Instance = this;
 
             AddAccessoryInformationService();
+        }
+
+        static Accessory()
+        {
+            var accessoryLtSk = Signer.GeneratePrivateKey();
+            var accessoryLtPk = accessoryLtSk.ExtractPublicKey();
+            AccessoryLtSk = accessoryLtSk.ToArray();
+            AccessoryLtPk = accessoryLtPk.ToArray();
         }
 
         public async Task Publish()
