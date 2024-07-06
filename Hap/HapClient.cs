@@ -48,6 +48,8 @@ namespace HomeKit.Hap
             m_WriteBuffer = new byte[2048];
 
             m_Srp = new Srp6aServer();
+
+            m_Logger.LogWarning("NEW HAP CLIENT");
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -69,6 +71,8 @@ namespace HomeKit.Hap
 
             while (!stoppingToken.IsCancellationRequested && m_TcpClient.Connected)
             {
+                m_Logger.LogWarning("HAP CLIENT IN: {in} OUT: {out}", m_InCount, m_OutCount);
+
                 await semaphorslim.WaitAsync(stoppingToken);
 
                 var requestLength = await m_TcpStream.ReadAsync(m_ReadBuffer, stoppingToken);
@@ -76,7 +80,9 @@ namespace HomeKit.Hap
 
                 if (requestLength == 0)
                 {
-                    break;
+                    // todo what to do when req is zero
+                    continue;
+                    //break;
                 }
 
                 if (requestLength == m_ReadBuffer.Length)
@@ -188,6 +194,7 @@ namespace HomeKit.Hap
             {
                 ("POST", "/pair-setup") => PairSetup(content, tx),
                 ("POST", "/pair-verify") => PairVerify(content, tx),
+                ("POST", "/pairings") => Pairings(content, tx),
                 ("GET", "/accessories") => GetAccessories(content, tx),
                 ("GET", "/characteristics") => GetCharacteristics(content, tx, query),
                 ("PUT", "/characteristics") => PutCharacteristics(content, tx),
@@ -372,14 +379,14 @@ namespace HomeKit.Hap
 
             /// 5.6.4 - 1
             Span<byte> publicKey = stackalloc byte[384];
-            TlvReader.ReadValue(publicKey, TlvType.PublicKey, rx);
+            TlvReader.ReadValue(TlvType.PublicKey, rx, publicKey);
 
             // caches shared secret..
             m_Srp.ComputeKey(publicKey.ToArray());
 
             /// 5.6.4 - 2, 3
             Span<byte> passwordProof = stackalloc byte[64];
-            TlvReader.ReadValue(passwordProof, TlvType.Proof, rx);
+            TlvReader.ReadValue(TlvType.Proof, rx, passwordProof);
 
             var accessoryProof = m_Srp.Respond(passwordProof.ToArray());
 
@@ -402,8 +409,8 @@ namespace HomeKit.Hap
             m_Srp.GetSharedSecret(sharedSecret);
 
             /// 5.6.6.1 - 1,2
-            Span<byte> encryptedDataWithTag = stackalloc byte[154]; // ok?
-            TlvReader.ReadValue(encryptedDataWithTag, TlvType.EncryptedData, rx);
+            Span<byte> encryptedDataWithTag = stackalloc byte[154];
+            TlvReader.ReadValue(TlvType.EncryptedData, rx, encryptedDataWithTag);
 
             Span<byte> decryptedData = stackalloc byte[encryptedDataWithTag.Length - 16];
             bool decrypted = DecryptEncryptedData(
@@ -420,11 +427,11 @@ namespace HomeKit.Hap
             HkdfSha512DeriveKey(iosDeviceX, sharedSecret, "Pair-Setup-Controller-Sign-Salt", "Pair-Setup-Controller-Sign-Info");
 
             /// 5.6.6.1 - 4
-            Span<byte> iosDevicePairingId = stackalloc byte[36]; // ok?
-            TlvReader.ReadValue(iosDevicePairingId, TlvType.Identifier, decryptedData);
+            Span<byte> iosDevicePairingId = stackalloc byte[36];
+            TlvReader.ReadValue(TlvType.Identifier, decryptedData, iosDevicePairingId);
 
-            Span<byte> iosDeviceLtPk = stackalloc byte[32]; // ok?
-            TlvReader.ReadValue(iosDeviceLtPk, TlvType.PublicKey, decryptedData);
+            Span<byte> iosDeviceLtPk = stackalloc byte[32];
+            TlvReader.ReadValue(TlvType.PublicKey, decryptedData, iosDeviceLtPk);
 
             Span<byte> iosDeviceInfo = stackalloc byte[100];
             iosDeviceX.CopyTo(iosDeviceInfo[0..]);
@@ -432,8 +439,8 @@ namespace HomeKit.Hap
             iosDeviceLtPk.CopyTo(iosDeviceInfo[68..]);
 
             /// 5.6.6.1 - 5
-            Span<byte> signature = stackalloc byte[64]; // ok?
-            TlvReader.ReadValue(signature, TlvType.Signature, decryptedData);
+            Span<byte> signature = stackalloc byte[64];
+            TlvReader.ReadValue(TlvType.Signature, decryptedData, signature);
 
             var valid = Signer.Validate(signature, iosDeviceInfo, iosDeviceLtPk);
             if (!valid)
@@ -443,7 +450,11 @@ namespace HomeKit.Hap
 
             /// 5.6.6.1 - 6
             // todo better
-            Accessory.Temporary_IosDeviceLtpk_psM5_pvM3 = iosDeviceLtPk.ToArray();
+            Accessory.Temporary_IosDeviceLtPk_psM5_pvM3 = iosDeviceLtPk.ToArray();
+
+            AccessoryServer.MainControlerLtPk = iosDeviceLtPk.ToArray();
+            AccessoryServer.MainControlerIdentifier = iosDevicePairingId.ToArray();
+            AccessoryServer.MainControlerPermissions = 1;
 
             /// M6 Response Generation
 
@@ -460,10 +471,10 @@ namespace HomeKit.Hap
             var mac = Encoding.UTF8.GetBytes(m_MacAddress);
 
             /// 5.6.6.2 - 3
-            Span<byte> accessoryPairingId = stackalloc byte[17]; // ok?
+            Span<byte> accessoryPairingId = stackalloc byte[17];
             Utils.WriteUtf8Bytes(accessoryPairingId, m_MacAddress);
 
-            Span<byte> accessoryInfo = stackalloc byte[81]; // ok?
+            Span<byte> accessoryInfo = stackalloc byte[81];
             accessoryX.CopyTo(accessoryInfo[0..]);
             accessoryPairingId.CopyTo(accessoryInfo[32..]);
             accessoryLtPk.CopyTo(accessoryInfo[49..]);
@@ -515,7 +526,7 @@ namespace HomeKit.Hap
 
             /// 5.7.2 - 2
             Span<byte> iosDeviceCurvePK = stackalloc byte[32];
-            TlvReader.ReadValue(iosDeviceCurvePK, TlvType.PublicKey, rx);
+            TlvReader.ReadValue(TlvType.PublicKey, rx, iosDeviceCurvePK);
 
             var sharedSecret = X25519KeyAgreement.Agreement(accessoryCurve.PrivateKey, iosDeviceCurvePK.ToArray()); // todo
             Accessory.Temporary_SharedSecret_pvM1_pvM3_reqHapDecrypt = sharedSecret; // 32
@@ -564,7 +575,7 @@ namespace HomeKit.Hap
 
             /// 5.7.4 - 1, 2
             Span<byte> encryptedDataWithTag = stackalloc byte[120];
-            TlvReader.ReadValue(encryptedDataWithTag, TlvType.EncryptedData, rx);
+            TlvReader.ReadValue(TlvType.EncryptedData, rx, encryptedDataWithTag);
 
             Span<byte> decryptedData = stackalloc byte[encryptedDataWithTag.Length - 16];
             bool decrypted = DecryptEncryptedData(
@@ -579,12 +590,12 @@ namespace HomeKit.Hap
 
             /// 5.7.4 - 3
             Span<byte> iosDevicePairingId = stackalloc byte[36];
-            TlvReader.ReadValue(iosDevicePairingId, TlvType.Identifier, decryptedData);
+            TlvReader.ReadValue(TlvType.Identifier, decryptedData, iosDevicePairingId);
 
             // todo
             //Use the iOS deviceʼs Pairing Identifier, iOSDevicePairingID, to look up the iOS deviceʼs long-term pub
             //lic key, iOSDeviceLTPK, in its list of paired controllers
-            var iosDeviceLTPK = Accessory.Temporary_IosDeviceLtpk_psM5_pvM3;
+            var iosDeviceLTPK = Accessory.Temporary_IosDeviceLtPk_psM5_pvM3;
             bool found = true;
             if (!found)
             {
@@ -593,7 +604,7 @@ namespace HomeKit.Hap
 
             /// 5.7.4 - 4
             Span<byte> iosDeviceSignature = stackalloc byte[64];
-            TlvReader.ReadValue(iosDeviceSignature, TlvType.Signature, decryptedData);
+            TlvReader.ReadValue(TlvType.Signature, decryptedData, iosDeviceSignature);
 
             Span<byte> iosDeviceInfo = stackalloc byte[100];
             Accessory.Temporary_IosDeviceCurvePk_pvM1_pvM3.CopyTo(iosDeviceInfo[0..]);
@@ -612,10 +623,145 @@ namespace HomeKit.Hap
             // todo better
             Accessory.Temporary_Ready = true;
 
-            Span<byte> content = stackalloc byte[3];
-            TlvWriter.WriteTlv(content, TlvType.State, 4);
+            return WritePairingState(tx, 4);
+        }
 
-            return WritePairingContent(tx, content);
+        private int Pairings(ReadOnlySpan<byte> rx, Span<byte> tx)
+        {
+            var state = TlvReader.ReadValue(TlvType.State, rx);
+            if (state != 1) throw new NotImplementedException();
+
+            var method = TlvReader.ReadValue(TlvType.Method, rx);
+            if (method is null) throw new MissingFieldException("Method");
+
+            return (TlvMethod)method.Value switch
+            {
+                TlvMethod.AddPairing => AddPairing(rx, tx),
+                TlvMethod.RemovePairing => RemovePairing(rx, tx),
+                TlvMethod.ListPairings => ListPairings(rx, tx),
+                _ => throw new InvalidOperationException(),
+            };
+        }
+
+        private int AddPairing(ReadOnlySpan<byte> rx, Span<byte> tx)
+        {
+            /// 5.10.2 - 1
+            // todo
+
+            /// 5.10.2 - 2
+            // todo
+
+            /// 5.10.2 - 3, 4
+            Span<byte> additionalControllerPairingIdentifier = stackalloc byte[36];
+            var acpi = TlvReader.ReadValue(TlvType.Identifier, rx, additionalControllerPairingIdentifier);
+
+            Span<byte> additionalControllerLtPk = stackalloc byte[32];
+            TlvReader.ReadValue(TlvType.PublicKey, rx, additionalControllerLtPk);
+
+            var additionalControllerPermissions = TlvReader.ReadValue(TlvType.Permissions, rx);
+            if (additionalControllerPermissions is null) throw new MissingFieldException("Permissions");
+
+            var acpiGuid = new Guid(additionalControllerPairingIdentifier);
+
+            if (AccessoryServer.PairedClientPublicKeys.TryGetValue(acpiGuid, out byte[]? value))
+            {
+                if (!value.AsSpan().SequenceEqual(additionalControllerLtPk))
+                {
+                    return WriteError(tx, TlvError.Unknown, 2);
+                }
+                else
+                {
+                    AccessoryServer.PairedClientPermissions[acpiGuid] = additionalControllerPermissions.Value;
+                }
+            }
+            else
+            {
+                // todo check kTLVError_MaxPeers
+
+                AccessoryServer.PairedClientPublicKeys[acpiGuid] = additionalControllerLtPk.ToArray();
+                AccessoryServer.PairedClientPermissions[acpiGuid] = additionalControllerPermissions.Value;
+            }
+
+            /// 5.10.2 - 5
+            return WritePairingState(tx, 2);
+
+            /// 5.10.2 - 6
+            // todo - check if sending using right encryption
+        }
+
+        private int RemovePairing(ReadOnlySpan<byte> rx, Span<byte> tx)
+        {
+            /// 5.11.2 - 1
+            // todo
+
+            /// 5.11.2 - 2
+            // todo
+
+            /// 5.11.2 - 3
+            Span<byte> removedControllerPairingIdentifier = stackalloc byte[36];
+            var acpi = TlvReader.ReadValue(TlvType.Identifier, rx, removedControllerPairingIdentifier);
+            var acpiGuid = new Guid(removedControllerPairingIdentifier);
+
+            AccessoryServer.PairedClientPublicKeys.Remove(acpiGuid);
+
+            /// 5.11.2 - 4
+            return WritePairingState(tx, 2);
+
+            /// 5.11.2 - 5
+            // todo
+
+            /// 5.11.2 - 6
+            // todo
+
+            /// 5.11.2 - 7
+            // todo
+        }
+
+        private int ListPairings(ReadOnlySpan<byte> rx, Span<byte> tx)
+        {
+            /// 5.12.2 - 1
+            // todo
+
+            /// 5.12.2 - 2
+            // todo
+
+            /// 5.12.2 - 3
+            var controllerCount = AccessoryServer.PairedClientPublicKeys.Count;
+
+            Span<byte> content = stackalloc byte[3 + 75 + ((2 + 75) * controllerCount)];
+            var contentPosition = 0;
+
+            // 3
+            contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.State, 2);
+
+            if (AccessoryServer.MainControlerPermissions is null)
+            {
+                throw new NotImplementedException();
+            }
+
+            // 75
+            contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.Identifier, AccessoryServer.MainControlerIdentifier);
+            contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.PublicKey, AccessoryServer.MainControlerLtPk);
+            contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.Permissions, AccessoryServer.MainControlerPermissions.Value);
+
+            var keys = AccessoryServer.PairedClientPublicKeys.Keys.ToArray();
+            for (int i = 0; i < controllerCount; i++)
+            {
+                // 2
+                content[contentPosition++] = (byte)TlvType.Separator;
+                content[contentPosition++] = 0x00;
+
+                var key = keys[i];
+                var guid = keys[i].ToByteArray();
+
+                // 75
+                contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.Identifier, guid);
+                contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.PublicKey, AccessoryServer.PairedClientPublicKeys[key]);
+                contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.Permissions, AccessoryServer.PairedClientPermissions[key]);
+            }
+
+            /// 5.12.2 - 4
+            return WriteHapContent(tx, content);
         }
 
         private int GetAccessories(ReadOnlySpan<byte> rx, Span<byte> tx)
@@ -691,6 +837,8 @@ namespace HomeKit.Hap
 
 
 
+
+
         private static int WriteError(Span<byte> httpBuffer, TlvError error, byte state)
         {
             Span<byte> content = stackalloc byte[6];
@@ -708,6 +856,14 @@ namespace HomeKit.Hap
             httpLength += HttpWriter.WritePairingOk(httpBuffer[httpLength..]);
             httpLength += HttpWriter.WriteContent(httpBuffer[httpLength..], content[..content.Length]);
             return httpLength;
+        }
+
+        private static int WritePairingState(Span<byte> httpBuffer, byte state)
+        {
+            Span<byte> content = stackalloc byte[3];
+            TlvWriter.WriteTlv(content, TlvType.State, state);
+
+            return WritePairingContent(httpBuffer, content);
         }
 
         private static int WriteHapContent(Span<byte> httpBuffer, ReadOnlySpan<byte> content)

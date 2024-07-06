@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading;
 
 namespace HomeKit
@@ -15,6 +16,13 @@ namespace HomeKit
         }
 
         public static Dictionary<int, Characteristic> TemporaryCharList = new();
+
+        public static byte[]? MainControlerIdentifier;
+        public static byte[]? MainControlerLtPk;
+        public static byte? MainControlerPermissions;
+
+        public static Dictionary<Guid, byte[]> PairedClientPublicKeys = new();
+        public static Dictionary<Guid, byte> PairedClientPermissions = new();
 
         public List<Accessory> Accessories { get; }
 

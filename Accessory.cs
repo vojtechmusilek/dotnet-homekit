@@ -26,7 +26,7 @@ namespace HomeKit
         public static byte[] Temporary_IosDeviceCurvePk_pvM1_pvM3 = null!;
         public static byte[] Temporary_AccessoryLtSk_psM5_pvM1 = null!;
         public static byte[] Temporary_AccessoryLtPk_psM5_pvM1 = null!;
-        public static byte[] Temporary_IosDeviceLtpk_psM5_pvM3 = null!;
+        public static byte[] Temporary_IosDeviceLtPk_psM5_pvM3 = null!;
         public static byte[] Temporary_SharedSecret_pvM1_pvM3_reqHapDecrypt = null!;
         public static bool Temporary_Ready;
         public static bool Temporary_OutReady;
@@ -58,6 +58,7 @@ namespace HomeKit
             m_Category = category;
             m_SetupId = Utils.GenerateSetupId();
             m_MacAddress = Utils.GenerateMacAddress();
+            //m_MacAddress = "07:44:EF:7F:4D:4F";
             m_Paired = false;
             m_Port = 23232;
             m_IpAddress = IPAddress.Parse("192.168.1.101");
@@ -139,12 +140,12 @@ namespace HomeKit
 
                 var client = await listener.AcceptTcpClientAsync();
 
-                if (client.Client.RemoteEndPoint?.ToString()?.Contains("192.168.1.111") ?? false)
-                {
-                    m_Logger.LogWarning("ignoring H.");
-                    client.Close();
-                    continue;
-                }
+                //if (client.Client.RemoteEndPoint?.ToString()?.Contains("192.168.1.111") ?? false)
+                //{
+                //    m_Logger.LogWarning("ignoring H.");
+                //    client.Close();
+                //    continue;
+                //}
 
                 m_Logger.LogInformation("Accepted new TCP client {remote}", client.Client.RemoteEndPoint);
 
@@ -293,7 +294,7 @@ namespace HomeKit
             var qrCodeData = qrGenerator.CreateQrCode(uri, QRCodeGenerator.ECCLevel.Q);
             var qrCode = new AsciiQRCode(qrCodeData);
             var qrCodeAsAsciiArt = qrCode.GetGraphic(1);
-            m_Logger.LogInformation("{qrcode}", qrCodeAsAsciiArt);
+            m_Logger.LogCritical("{qrcode}", qrCodeAsAsciiArt);
 
         }
 

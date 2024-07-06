@@ -4,7 +4,7 @@ namespace HomeKit.Hap
 {
     internal static class TlvReader
     {
-        public static int ReadValue(Span<byte> buffer, TlvType type, ReadOnlySpan<byte> data)
+        public static int ReadValue(TlvType type, ReadOnlySpan<byte> data, Span<byte> buffer)
         {
             var dataPosition = 0;
             var bufferPosition = 0;

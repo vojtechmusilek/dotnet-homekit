@@ -17,6 +17,17 @@
         FragmentData = 0x0C,
         FragmentLast = 0x0D,
         Flags = 0x13,
+        Separator = 0xFF,
+    }
+
+    internal enum TlvMethod : byte
+    {
+        PairSetup = 0x00,
+        PairSetupwithAuth = 0x01,
+        PairVerify = 0x02,
+        AddPairing = 0x03,
+        RemovePairing = 0x04,
+        ListPairings = 0x05,
     }
 
     internal enum TlvError : byte
