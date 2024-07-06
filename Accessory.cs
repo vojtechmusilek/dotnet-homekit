@@ -66,7 +66,7 @@ namespace HomeKit
             AddAccessoryInformationService();
         }
 
-        public void Publish()
+        public async Task Publish()
         {
             if (!m_Paired)
             {
@@ -78,7 +78,8 @@ namespace HomeKit
             m_Logger.LogTrace("Address: {address}", m_IpAddress);
 
             var listener = new TcpListener(IPAddress.Any, m_Port);
-            Task.Run(() => TcpLobbyTask(listener));
+            var lobbyTask = TcpLobbyTask(listener);
+            // todo store lobby task
 
             var nis = Utils.GetMulticastNetworkInterfaces();
             var ni = nis.FirstOrDefault(x => x.GetIPProperties().UnicastAddresses.Any(y => y.Address.Equals(m_IpAddress)));
@@ -92,7 +93,7 @@ namespace HomeKit
 
             m_MdnsClient = new MdnsClient(ni, m_LoggerFactory.CreateLogger<MdnsClient>());
             m_MdnsClient.OnPacketReceived += MdnsClient_OnPacketReceived;
-            m_MdnsClient.StartAsync(CancellationToken.None);
+            await m_MdnsClient.StartAsync(CancellationToken.None);
 
             m_MdnsClient.BroadcastPeriodically(CreateBroadcastPacket());
         }

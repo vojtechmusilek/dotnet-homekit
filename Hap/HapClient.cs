@@ -22,20 +22,26 @@ namespace HomeKit.Hap
         private readonly Socket m_Socket;
         private readonly NetworkStream m_TcpStream;
         private readonly TcpClient m_TcpClient;
-        private readonly Srp6aServer m_Srp;
         private readonly string m_PinCode;
         private readonly string m_MacAddress;
-        private readonly byte[] m_ReadBuffer;
-        private readonly byte[] m_WriteBuffer;
 
-        public byte[] Temporary_AccessoryCurvePk_pvM1_pvM3 = null!;
-        public byte[] Temporary_IosDeviceCurvePk_pvM1_pvM3 = null!;
-        public byte[] Temporary_SharedSecret_pvM1_pvM3_reqHapDecryptEncrypt = null!;
-        public bool Temporary_Ready;
-        public bool Temporary_OutReady;
+        private readonly Srp6aServer m_SrpServer = new();
 
-        private int m_InCount = 0;
-        private int m_OutCount = 0;
+        private readonly byte[] m_ReadBuffer = new byte[2048];
+        private readonly byte[] m_WriteBuffer = new byte[2048];
+
+        private readonly byte[] m_AccessoryCurvePk = new byte[32];
+        private readonly byte[] m_IosDeviceCurvePk = new byte[32];
+        private readonly byte[] m_SharedSecret = new byte[32];
+
+        private bool m_AeadRxEnabled = false;
+        private bool m_AeadTxEnabled = false;
+
+        private int m_AeadRxCount = 0;
+        private int m_AeadTxCount = 0;
+
+        private ChaCha20Poly1305? m_AeadRxKey;
+        private ChaCha20Poly1305? m_AeadTxKey;
 
         private readonly string m_RemoteIp;
 
@@ -53,13 +59,6 @@ namespace HomeKit.Hap
             m_TcpStream = tcpClient.GetStream();
 
             m_RemoteIp = m_Socket.RemoteEndPoint?.ToString() ?? "uknown";
-
-            m_ReadBuffer = new byte[2048];
-            m_WriteBuffer = new byte[2048];
-
-            m_Srp = new Srp6aServer();
-
-            m_Logger.LogWarning("NEW HAP CLIENT");
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -77,35 +76,20 @@ namespace HomeKit.Hap
 
         private async Task ReceiverTask(CancellationToken stoppingToken)
         {
-            var semaphorslim = new SemaphoreSlim(1, 1);
-
             while (!stoppingToken.IsCancellationRequested && m_TcpClient.Connected)
             {
-                //m_Logger.LogWarning("HAP CLIENT IN: {in} OUT: {out}", m_InCount, m_OutCount);
-
-                await semaphorslim.WaitAsync(stoppingToken);
-
-                var requestLength = await m_TcpStream.ReadAsync(m_ReadBuffer, stoppingToken);
+                var requestLength = await m_TcpStream.ReadAtLeastAsync(m_ReadBuffer, 1, false, stoppingToken);
                 m_Logger.LogInformation("TCP Rx {length}", requestLength);
 
                 if (requestLength == 0)
                 {
-                    // todo what to do when req is zero
-                    continue;
-                    //break;
+                    break;
                 }
 
                 if (requestLength == m_ReadBuffer.Length)
                 {
-                    // todo handle this case
-                    throw new NotImplementedException();
+                    throw new NotImplementedException("Read buffer overflow");
                 }
-
-                //if (requestLength == 200)
-                //{
-                //    var x = new byte[2100];
-                //    var y = m_TcpStream.Read(x);
-                //}
 
                 var encryptionOff = Encoding.UTF8.GetString(m_ReadBuffer)[0] is 'H' or 'P' or 'G';
 
@@ -117,36 +101,42 @@ namespace HomeKit.Hap
                 //                }
                 //#endif
 
-                int responseLength = ProcessRequest(requestLength);
-                if (responseLength == 0)
+                try
                 {
-                    continue;
+                    int responseLength = ProcessRequest(requestLength);
+                    if (responseLength == 0)
+                    {
+                        continue;
+                    }
+
+                    //#if DEBUG
+                    //                if (encryptionOff)
+                    //                {
+                    //                    m_Logger.LogDebug("TCP RES:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, responseLength)));
+                    //                }
+                    //#endif
+
+                    m_Logger.LogInformation("TCP Tx {length}", responseLength);
+                    await m_TcpStream.WriteAsync(m_WriteBuffer.AsMemory(0, responseLength), stoppingToken);
                 }
-
-                //#if DEBUG
-                //                if (encryptionOff)
-                //                {
-                //                    m_Logger.LogDebug("TCP RES:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, responseLength)));
-                //                }
-                //#endif
-
-                m_Logger.LogInformation("TCP Tx {length}", responseLength);
-                await m_TcpStream.WriteAsync(m_WriteBuffer.AsMemory(0, responseLength), stoppingToken);
-
-                semaphorslim.Release();
+                catch (Exception ex)
+                {
+                    m_Logger.LogError(ex, "Failed to process request");
+                }
             }
 
-            m_Logger.LogInformation("Closing TCP client {remote}", m_Socket.RemoteEndPoint);
+            m_Logger.LogInformation("Closing HAP client {remote}", m_Socket.RemoteEndPoint);
             m_TcpClient.Close();
         }
 
         private int ProcessRequest(int length)
         {
             var data = m_ReadBuffer.AsSpan()[0..length];
-            var encryptionOff = Encoding.UTF8.GetString(data)[0] is 'H' or 'P' or 'G';
 
-            if (!encryptionOff)
+            if (m_AeadRxEnabled)
             {
+                m_AeadTxEnabled = true;
+
                 var decrypted = DecryptRequest(data);
                 data = decrypted.AsSpan();
                 length = decrypted.Length;
@@ -198,7 +188,7 @@ namespace HomeKit.Hap
 
             var tx = m_WriteBuffer.AsSpan();
 
-            m_Logger.LogWarning("{remote} -> {method}, {path} {query}", m_RemoteIp, method, path, query);
+            m_Logger.LogInformation("{remote} -> {method}, {path} {query}", m_RemoteIp, method, path, query);
 
             var txLen = (method, path) switch
             {
@@ -208,10 +198,10 @@ namespace HomeKit.Hap
                 ("GET", "/accessories") => GetAccessories(content, tx),
                 ("GET", "/characteristics") => GetCharacteristics(content, tx, query),
                 ("PUT", "/characteristics") => PutCharacteristics(content, tx),
-                _ => throw new NotImplementedException(),
+                _ => throw new NotImplementedException($"Method {method}, {path}, {query}"),
             };
 
-            if (!encryptionOff)
+            if (m_AeadTxEnabled)
             {
                 //#if DEBUG
                 //                m_Logger.LogDebug("TCP RES DECRYPTED:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, txLen)));
@@ -235,13 +225,6 @@ namespace HomeKit.Hap
             int minLen = 1;
             int minBlockLen = lengthLen + tagLen + minLen;
 
-            var hkdf = HKDF.DeriveKey(
-                new HashAlgorithmName(nameof(SHA512)), Temporary_SharedSecret_pvM1_pvM3_reqHapDecryptEncrypt, 32,
-                Encoding.UTF8.GetBytes("Control-Salt"),
-                Encoding.UTF8.GetBytes("Control-Write-Encryption-Key")
-            );
-            var chacha = new ChaCha20Poly1305(hkdf);
-
             var result = new List<byte>();
             var dataList = data.ToArray().ToList();
 
@@ -258,7 +241,7 @@ namespace HomeKit.Hap
 
                 dataList = dataList.Skip(lengthLen).ToList();
                 var dataSize = blockSize + tagLen;
-                var nonce = BitConverter.GetBytes((ulong)m_InCount).PadTlsNonce();
+                var nonce = BitConverter.GetBytes((ulong)m_AeadRxCount).PadTlsNonce();
 
                 var encryptedDataWithTag = dataList.Take(dataSize).ToArray();
                 var encryptedData = encryptedDataWithTag[..^16];
@@ -268,7 +251,7 @@ namespace HomeKit.Hap
 
                 try
                 {
-                    chacha.Decrypt(nonce, encryptedData, tag, decryptedData, blockLengthBytes.ToArray());
+                    m_AeadRxKey!.Decrypt(nonce, encryptedData, tag, decryptedData, blockLengthBytes.ToArray());
                 }
                 catch (Exception excc)
                 {
@@ -277,7 +260,7 @@ namespace HomeKit.Hap
                 }
 
                 result.AddRange(decryptedData);
-                m_InCount += 1;
+                m_AeadRxCount += 1;
                 dataList = dataList.Skip(dataSize).ToList();
             }
 
@@ -293,26 +276,19 @@ namespace HomeKit.Hap
             var total = data.Length;
             var maxBlockLength = 1024;
 
-            var hkdf = HKDF.DeriveKey(
-                new HashAlgorithmName(nameof(SHA512)), Temporary_SharedSecret_pvM1_pvM3_reqHapDecryptEncrypt, 32,
-                Encoding.UTF8.GetBytes("Control-Salt"),
-                Encoding.UTF8.GetBytes("Control-Read-Encryption-Key")
-            );
-            var chacha = new ChaCha20Poly1305(hkdf);
-
             while (offset < total)
             {
                 var length = Math.Min(total - offset, maxBlockLength);
                 var lengthBytes = BitConverter.GetBytes((ushort)length);
                 var block = data[offset..(offset + length)];
-                var nonce = BitConverter.GetBytes((ulong)m_OutCount).PadTlsNonce();
+                var nonce = BitConverter.GetBytes((ulong)m_AeadTxCount).PadTlsNonce();
                 var encryped = new byte[block.Length];
                 var tag = new byte[16];
 
-                chacha.Encrypt(nonce, block, encryped, tag, lengthBytes);
+                m_AeadTxKey!.Encrypt(nonce, block, encryped, tag, lengthBytes);
 
                 offset += length;
-                m_OutCount += 1;
+                m_AeadTxCount += 1;
                 result.AddRange(lengthBytes);
                 result.AddRange(encryped);
                 result.AddRange(tag);
@@ -366,12 +342,12 @@ namespace HomeKit.Hap
             Span<byte> salt = stackalloc byte[16];
             Random.Shared.NextBytes(salt);
 
-            m_Srp.SetSalt(salt);
-            m_Srp.SetUsernameAndPassword("Pair-Setup", m_PinCode);
+            m_SrpServer.SetSalt(salt);
+            m_SrpServer.SetUsernameAndPassword("Pair-Setup", m_PinCode);
 
             /// 5.6.2 - 9
             Span<byte> accessorySrpPublicKey = stackalloc byte[384];
-            m_Srp.GeneratePublicKey(accessorySrpPublicKey);
+            m_SrpServer.GeneratePublicKey(accessorySrpPublicKey);
 
             /// 5.6.2 - 10
             Span<byte> content = stackalloc byte[409];
@@ -392,13 +368,13 @@ namespace HomeKit.Hap
             TlvReader.ReadValue(TlvType.PublicKey, rx, publicKey);
 
             // caches shared secret..
-            m_Srp.ComputeKey(publicKey.ToArray());
+            m_SrpServer.ComputeKey(publicKey.ToArray());
 
             /// 5.6.4 - 2, 3
             Span<byte> passwordProof = stackalloc byte[64];
             TlvReader.ReadValue(TlvType.Proof, rx, passwordProof);
 
-            var accessoryProof = m_Srp.Respond(passwordProof.ToArray());
+            var accessoryProof = m_SrpServer.Respond(passwordProof.ToArray());
 
             /// 5.6.4 - 4, 5
             Span<byte> content = stackalloc byte[69];
@@ -416,7 +392,7 @@ namespace HomeKit.Hap
             /// M5 Verification
 
             Span<byte> sharedSecret = stackalloc byte[64];
-            m_Srp.GetSharedSecret(sharedSecret);
+            m_SrpServer.GetSharedSecret(sharedSecret);
 
             /// 5.6.6.1 - 1,2
             Span<byte> encryptedDataWithTag = stackalloc byte[154];
@@ -539,15 +515,15 @@ namespace HomeKit.Hap
 
             /// 5.7.2 - 1
             var accessoryCurve = X25519KeyAgreement.GenerateKeyPair(); // pk 32 sk 32 todo 
-            Temporary_AccessoryCurvePk_pvM1_pvM3 = accessoryCurve.PublicKey;
+            accessoryCurve.PublicKey.AsSpan().CopyTo(m_AccessoryCurvePk);
 
             /// 5.7.2 - 2
             Span<byte> iosDeviceCurvePK = stackalloc byte[32];
             TlvReader.ReadValue(TlvType.PublicKey, rx, iosDeviceCurvePK);
 
             var sharedSecret = X25519KeyAgreement.Agreement(accessoryCurve.PrivateKey, iosDeviceCurvePK.ToArray()); // todo
-            Temporary_SharedSecret_pvM1_pvM3_reqHapDecryptEncrypt = sharedSecret; // 32
-            Temporary_IosDeviceCurvePk_pvM1_pvM3 = iosDeviceCurvePK.ToArray(); // 32
+            sharedSecret.AsSpan().CopyTo(m_SharedSecret);
+            iosDeviceCurvePK.CopyTo(m_IosDeviceCurvePk);
 
             /// 5.7.2 - 3
             Span<byte> accessoryPairingId = stackalloc byte[17];
@@ -570,7 +546,7 @@ namespace HomeKit.Hap
             /// 5.7.2 - 6, 7
             Span<byte> encryptedDataWithTag = stackalloc byte[101];
             EncryptData(
-                encryptedDataWithTag, subTlv, Temporary_SharedSecret_pvM1_pvM3_reqHapDecryptEncrypt,
+                encryptedDataWithTag, subTlv, m_SharedSecret,
                 "Pair-Verify-Encrypt-Salt", "Pair-Verify-Encrypt-Info", "PV-Msg02"
             );
 
@@ -594,7 +570,7 @@ namespace HomeKit.Hap
 
             Span<byte> decryptedData = stackalloc byte[encryptedDataWithTag.Length - 16];
             bool decrypted = DecryptEncryptedData(
-                decryptedData, encryptedDataWithTag, Temporary_SharedSecret_pvM1_pvM3_reqHapDecryptEncrypt,
+                decryptedData, encryptedDataWithTag, m_SharedSecret,
                 "Pair-Verify-Encrypt-Salt", "Pair-Verify-Encrypt-Info", "PV-Msg03"
             );
 
@@ -618,11 +594,9 @@ namespace HomeKit.Hap
             TlvReader.ReadValue(TlvType.Signature, decryptedData, iosDeviceSignature);
 
             Span<byte> iosDeviceInfo = stackalloc byte[100];
-            Temporary_IosDeviceCurvePk_pvM1_pvM3.CopyTo(iosDeviceInfo[0..]);
+            m_IosDeviceCurvePk.CopyTo(iosDeviceInfo[0..]);
             iosDevicePairingId.CopyTo(iosDeviceInfo[32..]);
-            Temporary_AccessoryCurvePk_pvM1_pvM3.CopyTo(iosDeviceInfo[68..]);
-
-            //var iosDeviceInfo = Utils.MergeBytes(Accessory.TemporaryIosDeviceCurvePK, iosDevicePairingId.ToArray(), Accessory.TemporaryAccessoryCurvePK);
+            m_AccessoryCurvePk.CopyTo(iosDeviceInfo[68..]);
 
             bool valid = Signer.Validate(iosDeviceSignature, iosDeviceInfo, iosDeviceLTPK);
             if (!valid)
@@ -631,8 +605,7 @@ namespace HomeKit.Hap
             }
 
             /// 5.7.4 - 5
-            // todo better
-            Temporary_Ready = true;
+            EnableAead();
 
             return WritePairingState(tx, 4);
         }
@@ -790,8 +763,6 @@ namespace HomeKit.Hap
             var json = JsonSerializer.Serialize(accessoryServer, Utils.HapJsonOptions);
             var jsonbytes = Encoding.UTF8.GetBytes(json);
 
-            Temporary_OutReady = true;
-
             return WriteHapContent(tx, jsonbytes);
         }
 
@@ -854,7 +825,18 @@ namespace HomeKit.Hap
 
 
 
+        private void EnableAead()
+        {
+            Span<byte> hkdf = stackalloc byte[32];
 
+            HkdfSha512DeriveKey(hkdf, m_SharedSecret, "Control-Salt", "Control-Write-Encryption-Key");
+            m_AeadRxKey = new ChaCha20Poly1305(hkdf);
+
+            HkdfSha512DeriveKey(hkdf, m_SharedSecret, "Control-Salt", "Control-Read-Encryption-Key");
+            m_AeadTxKey = new ChaCha20Poly1305(hkdf);
+
+            m_AeadRxEnabled = true;
+        }
 
         private static int WriteError(Span<byte> httpBuffer, TlvError error, byte state)
         {
