@@ -14,8 +14,5 @@
 
         public const int FlagsQueryOrResponsePosition = 15;
         public const int FlagsAuthoritativeAnswerPosition = 10;
-
-        public const uint LongTtl = 4500;
-        public const uint ShortTtl = 120;
     }
 }

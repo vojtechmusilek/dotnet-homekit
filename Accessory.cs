@@ -94,34 +94,7 @@ namespace HomeKit
             m_MdnsClient.OnPacketReceived += MdnsClient_OnPacketReceived;
             m_MdnsClient.StartAsync(CancellationToken.None);
 
-            m_MdnsClient.Broadcast(CreateBroadcastPacket());
-        }
-
-        private void MdnsClient_OnPacketReceived(Packet packet)
-        {
-            // todo remove temporary filter
-            if (packet.Endpoint.Address.ToString() != "192.168.1.110" && packet.Endpoint.Address.ToString() != "192.168.1.101")
-            {
-                return;
-            }
-
-            m_Logger.LogTrace("Received packet {packet}", packet);
-
-            //if (packet.Endpoint.Address.Equals(IpAddress))
-            //{
-            //    return;
-            //}
-
-            foreach (var q in packet.Questions)
-            {
-                m_Logger.LogWarning(q.ToString());
-            }
-
-            var response = RespondToPacket(packet);
-            if (response.HasValue)
-            {
-                m_MdnsClient.Broadcast(response.Value);
-            }
+            m_MdnsClient.BroadcastPeriodically(CreateBroadcastPacket());
         }
 
         private async Task TcpLobbyTask(TcpListener listener)
@@ -130,16 +103,7 @@ namespace HomeKit
 
             while (true)
             {
-                m_Logger.LogInformation("Waiting for TCP client...");
-
                 var client = await listener.AcceptTcpClientAsync();
-
-                //if (client.Client.RemoteEndPoint?.ToString()?.Contains("192.168.1.111") ?? false)
-                //{
-                //    m_Logger.LogWarning("ignoring H.");
-                //    client.Close();
-                //    continue;
-                //}
 
                 m_Logger.LogInformation("Accepted new TCP client {remote}", client.Client.RemoteEndPoint);
 
@@ -148,7 +112,7 @@ namespace HomeKit
             }
         }
 
-        private Packet? RespondToPacket(Packet packet)
+        private void MdnsClient_OnPacketReceived(Packet packet)
         {
             foreach (var question in packet.Questions)
             {
@@ -162,10 +126,8 @@ namespace HomeKit
                     continue;
                 }
 
-                return CreateBroadcastPacket();
+                m_MdnsClient.Broadcast(CreateBroadcastPacket());
             }
-
-            return null;
         }
 
         private Packet CreateBroadcastPacket()
@@ -190,7 +152,7 @@ namespace HomeKit
                             Name = Const.MdnsHapDomainName,
                             Type = PacketRecordData_PTR.Type,
                             Class = 1,
-                            Ttl = Const.LongTtl,
+                            Ttl = PacketRecord.LongTtl,
                             Data = new PacketRecordData_PTR()
                             {
                                 Name = identifier
@@ -201,7 +163,7 @@ namespace HomeKit
                             Name = identifier,
                             Type = PacketRecordData_SRV.Type,
                             Class = 0x8001,
-                            Ttl = Const.ShortTtl,
+                            Ttl = PacketRecord.ShortTtl,
                             Data = new PacketRecordData_SRV()
                             {
                                 Priority = 0,
@@ -215,7 +177,7 @@ namespace HomeKit
                             Name = identifier,
                             Type = PacketRecordData_TXT.Type,
                             Class = 0x8001,
-                            Ttl = Const.LongTtl,
+                            Ttl = PacketRecord.LongTtl,
                             Data = new PacketRecordData_TXT()
                             {
                                 KeyValuePairs = new Dictionary<string, string>()
@@ -241,7 +203,7 @@ namespace HomeKit
                             Name = host,
                             Type = PacketRecordData_A.Type,
                             Class = 0x8001,
-                            Ttl = Const.ShortTtl,
+                            Ttl = PacketRecord.ShortTtl,
                             Data = new PacketRecordData_A()
                             {
                                 IpAddress = m_IpAddress

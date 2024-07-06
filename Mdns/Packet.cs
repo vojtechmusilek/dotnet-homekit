@@ -10,8 +10,6 @@ namespace HomeKit.Mdns
         public PacketRecord[] Answers;
         public PacketRecord[] Authorities;
         public PacketRecord[] Additionals;
-
-        public IPEndPoint Endpoint;
     }
 
     internal record struct PacketHeader
@@ -33,6 +31,9 @@ namespace HomeKit.Mdns
 
     internal record struct PacketRecord
     {
+        public const uint LongTtl = 4500;
+        public const uint ShortTtl = 120;
+
         public string Name;
         public ushort Type;
         public ushort Class;
