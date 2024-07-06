@@ -43,6 +43,8 @@ namespace HomeKit.Hap
         private ChaCha20Poly1305? m_AeadRxKey;
         private ChaCha20Poly1305? m_AeadTxKey;
 
+        private readonly HapAead m_AeadTx = new();
+
         private readonly string m_RemoteIp;
 
         private Task m_ReceiverTask = null!;
@@ -190,7 +192,7 @@ namespace HomeKit.Hap
 
             m_Logger.LogInformation("{remote} -> {method}, {path} {query}", m_RemoteIp, method, path, query);
 
-            var txLen = (method, path) switch
+            var txLength = (method, path) switch
             {
                 ("POST", "/pair-setup") => PairSetup(content, tx),
                 ("POST", "/pair-verify") => PairVerify(content, tx),
@@ -207,13 +209,10 @@ namespace HomeKit.Hap
                 //                m_Logger.LogDebug("TCP RES DECRYPTED:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, txLen)));
                 //#endif
 
-                var encrypted = EncryptResponse(m_WriteBuffer.AsSpan(0, txLen));
-                var newlen = encrypted.Length;
-                encrypted.CopyTo(m_WriteBuffer, 0);
-                txLen = newlen;
+                txLength = m_AeadTx.Encrypt(m_WriteBuffer.AsSpan(0, txLength), m_WriteBuffer.AsSpan());
             }
 
-            return txLen;
+            return txLength;
         }
 
         private byte[] DecryptRequest(ReadOnlySpan<byte> data)
@@ -263,37 +262,6 @@ namespace HomeKit.Hap
                 m_AeadRxCount += 1;
                 dataList = dataList.Skip(dataSize).ToList();
             }
-
-            return result.ToArray();
-        }
-
-        private byte[] EncryptResponse(ReadOnlySpan<byte> data)
-        {
-            // todo cleanup
-
-            var result = new List<byte>();
-            var offset = 0;
-            var total = data.Length;
-            var maxBlockLength = 1024;
-
-            while (offset < total)
-            {
-                var length = Math.Min(total - offset, maxBlockLength);
-                var lengthBytes = BitConverter.GetBytes((ushort)length);
-                var block = data[offset..(offset + length)];
-                var nonce = BitConverter.GetBytes((ulong)m_AeadTxCount).PadTlsNonce();
-                var encryped = new byte[block.Length];
-                var tag = new byte[16];
-
-                m_AeadTxKey!.Encrypt(nonce, block, encryped, tag, lengthBytes);
-
-                offset += length;
-                m_AeadTxCount += 1;
-                result.AddRange(lengthBytes);
-                result.AddRange(encryped);
-                result.AddRange(tag);
-            }
-
 
             return result.ToArray();
         }
@@ -399,7 +367,7 @@ namespace HomeKit.Hap
             TlvReader.ReadValue(TlvType.EncryptedData, rx, encryptedDataWithTag);
 
             Span<byte> decryptedData = stackalloc byte[encryptedDataWithTag.Length - 16];
-            bool decrypted = DecryptEncryptedData(
+            bool decrypted = Crypto.DecryptEncryptedData(
                 decryptedData, encryptedDataWithTag, sharedSecret,
                 "Pair-Setup-Encrypt-Salt", "Pair-Setup-Encrypt-Info", "PS-Msg05"
             );
@@ -410,7 +378,7 @@ namespace HomeKit.Hap
 
             /// 5.6.6.1 - 3
             Span<byte> iosDeviceX = stackalloc byte[32];
-            HkdfSha512DeriveKey(iosDeviceX, sharedSecret, "Pair-Setup-Controller-Sign-Salt", "Pair-Setup-Controller-Sign-Info");
+            Crypto.HkdfSha512DeriveKey(iosDeviceX, sharedSecret, "Pair-Setup-Controller-Sign-Salt", "Pair-Setup-Controller-Sign-Info");
 
             /// 5.6.6.1 - 4
             Span<byte> iosDevicePairingId = stackalloc byte[36];
@@ -459,7 +427,7 @@ namespace HomeKit.Hap
 
             /// 5.6.6.2 - 2
             Span<byte> accessoryX = stackalloc byte[32];
-            HkdfSha512DeriveKey(accessoryX, sharedSecret, "Pair-Setup-Accessory-Sign-Salt", "Pair-Setup-Accessory-Sign-Info");
+            Crypto.HkdfSha512DeriveKey(accessoryX, sharedSecret, "Pair-Setup-Accessory-Sign-Salt", "Pair-Setup-Accessory-Sign-Info");
 
             var mac = Encoding.UTF8.GetBytes(m_MacAddress);
 
@@ -484,7 +452,7 @@ namespace HomeKit.Hap
 
             /// 5.6.6.2 - 6
             Span<byte> encryptedDataWithTag_tx = stackalloc byte[135];
-            EncryptData(
+            Crypto.EncryptData(
                 encryptedDataWithTag_tx, subTlv, sharedSecret,
                 "Pair-Setup-Encrypt-Salt", "Pair-Setup-Encrypt-Info", "PS-Msg06"
             );
@@ -545,7 +513,7 @@ namespace HomeKit.Hap
 
             /// 5.7.2 - 6, 7
             Span<byte> encryptedDataWithTag = stackalloc byte[101];
-            EncryptData(
+            Crypto.EncryptData(
                 encryptedDataWithTag, subTlv, m_SharedSecret,
                 "Pair-Verify-Encrypt-Salt", "Pair-Verify-Encrypt-Info", "PV-Msg02"
             );
@@ -569,7 +537,7 @@ namespace HomeKit.Hap
             TlvReader.ReadValue(TlvType.EncryptedData, rx, encryptedDataWithTag);
 
             Span<byte> decryptedData = stackalloc byte[encryptedDataWithTag.Length - 16];
-            bool decrypted = DecryptEncryptedData(
+            bool decrypted = Crypto.DecryptEncryptedData(
                 decryptedData, encryptedDataWithTag, m_SharedSecret,
                 "Pair-Verify-Encrypt-Salt", "Pair-Verify-Encrypt-Info", "PV-Msg03"
             );
@@ -829,11 +797,13 @@ namespace HomeKit.Hap
         {
             Span<byte> hkdf = stackalloc byte[32];
 
-            HkdfSha512DeriveKey(hkdf, m_SharedSecret, "Control-Salt", "Control-Write-Encryption-Key");
+            Crypto.HkdfSha512DeriveKey(hkdf, m_SharedSecret, "Control-Salt", "Control-Write-Encryption-Key");
             m_AeadRxKey = new ChaCha20Poly1305(hkdf);
 
-            HkdfSha512DeriveKey(hkdf, m_SharedSecret, "Control-Salt", "Control-Read-Encryption-Key");
+            Crypto.HkdfSha512DeriveKey(hkdf, m_SharedSecret, "Control-Salt", "Control-Read-Encryption-Key");
             m_AeadTxKey = new ChaCha20Poly1305(hkdf);
+
+            m_AeadTx.Enable(m_SharedSecret, "Control-Read-Encryption-Key");
 
             m_AeadRxEnabled = true;
         }
@@ -873,54 +843,6 @@ namespace HomeKit.Hap
             return httpLength;
         }
 
-        private static bool DecryptEncryptedData(Span<byte> decryptedDataBuffer, ReadOnlySpan<byte> encryptedDataWithTag, ReadOnlySpan<byte> inputKeyingMaterial, string salt, string info, string nonce)
-        {
-            try
-            {
-                Span<byte> nonceEncoded = stackalloc byte[12];
-                Utils.WriteUtf8BytesAlignedToRight(nonceEncoded, nonce);
 
-                Span<byte> outputKeyingMaterial = stackalloc byte[32];
-                HkdfSha512DeriveKey(outputKeyingMaterial, inputKeyingMaterial, salt, info);
-
-                var chaCha20Poly1305 = new ChaCha20Poly1305(outputKeyingMaterial);
-                chaCha20Poly1305.Decrypt(nonceEncoded, encryptedDataWithTag[..^16], encryptedDataWithTag[^16..], decryptedDataBuffer);
-
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private static void HkdfSha512DeriveKey(Span<byte> outputKeyingMaterialBuffer, ReadOnlySpan<byte> inputKeyingMaterial, string salt, string info)
-        {
-            Span<byte> saltEncoded = stackalloc byte[salt.Length];
-            Utils.WriteUtf8Bytes(saltEncoded, salt);
-
-            Span<byte> infoEncoded = stackalloc byte[info.Length];
-            Utils.WriteUtf8Bytes(infoEncoded, info);
-
-            HKDF.DeriveKey(HashAlgorithmName.SHA512, inputKeyingMaterial, outputKeyingMaterialBuffer, saltEncoded, infoEncoded);
-        }
-
-        private static void EncryptData(Span<byte> encryptedDataWithTagBuffer, ReadOnlySpan<byte> decryptedData, ReadOnlySpan<byte> inputKeyingMaterial, string salt, string info, string nonce)
-        {
-            Span<byte> saltEncoded = stackalloc byte[salt.Length];
-            Utils.WriteUtf8Bytes(saltEncoded, salt);
-
-            Span<byte> infoEncoded = stackalloc byte[info.Length];
-            Utils.WriteUtf8Bytes(infoEncoded, info);
-
-            Span<byte> nonceEncoded = stackalloc byte[12];
-            Utils.WriteUtf8BytesAlignedToRight(nonceEncoded, nonce);
-
-            Span<byte> outputKeyingMaterial = stackalloc byte[32];
-            HKDF.DeriveKey(HashAlgorithmName.SHA512, inputKeyingMaterial, outputKeyingMaterial, saltEncoded, infoEncoded);
-
-            var chaCha20Poly1305 = new ChaCha20Poly1305(outputKeyingMaterial);
-            chaCha20Poly1305.Encrypt(nonceEncoded, decryptedData, encryptedDataWithTagBuffer[..^16], encryptedDataWithTagBuffer[^16..]);
-        }
     }
 }
