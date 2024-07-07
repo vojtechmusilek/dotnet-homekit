@@ -311,19 +311,9 @@ namespace HomeKit.Hap
             }
 
             /// 5.6.6.1 - 6
-            if (AccessoryServer.MainControlerLtPk is not null)
-            {
-                // todo this should not happen
-                throw new NotImplementedException();
-            }
-
-            AccessoryServer.MainControlerLtPk = iosDeviceLtPk.ToArray();
-            AccessoryServer.MainControlerIdentifier = iosDevicePairingId.ToArray();
-            AccessoryServer.MainControlerPermissions = 1;
-
             var guid = Utils.ReadUtf8Identifier(iosDevicePairingId);
-            AccessoryServer.PairedClientPublicKeys[guid] = AccessoryServer.MainControlerLtPk;
-            AccessoryServer.PairedClientPermissions[guid] = 1;
+            AccessoryServer.PairedClientsLtPk[guid] = iosDeviceLtPk.ToArray();
+            AccessoryServer.PairedClientsPerms[guid] = 1;
 
             /// M6 Response Generation
 
@@ -458,7 +448,7 @@ namespace HomeKit.Hap
             TlvReader.ReadValue(TlvType.Identifier, decryptedData, iosDevicePairingId);
 
             var iosDevicePairingGuid = Utils.ReadUtf8Identifier(iosDevicePairingId);
-            if (!AccessoryServer.PairedClientPublicKeys.TryGetValue(iosDevicePairingGuid, out var iosDeviceLTPK))
+            if (!AccessoryServer.PairedClientsLtPk.TryGetValue(iosDevicePairingGuid, out var iosDeviceLTPK))
             {
                 return WriteError(tx, TlvError.Authentication, 4);
             }
@@ -523,7 +513,7 @@ namespace HomeKit.Hap
 
             var acpiGuid = Utils.ReadUtf8Identifier(additionalControllerPairingIdentifier);
 
-            if (AccessoryServer.PairedClientPublicKeys.TryGetValue(acpiGuid, out byte[]? value))
+            if (AccessoryServer.PairedClientsLtPk.TryGetValue(acpiGuid, out byte[]? value))
             {
                 if (!value.AsSpan().SequenceEqual(additionalControllerLtPk))
                 {
@@ -531,15 +521,17 @@ namespace HomeKit.Hap
                 }
                 else
                 {
-                    AccessoryServer.PairedClientPermissions[acpiGuid] = additionalControllerPermissions.Value;
+                    m_Logger.LogInformation("Updated {guid}", acpiGuid);
+                    AccessoryServer.PairedClientsPerms[acpiGuid] = additionalControllerPermissions.Value;
                 }
             }
             else
             {
                 // todo check kTLVError_MaxPeers
 
-                AccessoryServer.PairedClientPublicKeys[acpiGuid] = additionalControllerLtPk.ToArray();
-                AccessoryServer.PairedClientPermissions[acpiGuid] = additionalControllerPermissions.Value;
+                m_Logger.LogInformation("Added {guid}", acpiGuid);
+                AccessoryServer.PairedClientsLtPk[acpiGuid] = additionalControllerLtPk.ToArray();
+                AccessoryServer.PairedClientsPerms[acpiGuid] = additionalControllerPermissions.Value;
             }
 
             /// 5.10.2 - 5
@@ -564,7 +556,8 @@ namespace HomeKit.Hap
             var acpi = TlvReader.ReadValue(TlvType.Identifier, rx, removedControllerPairingIdentifier);
             var acpiGuid = Utils.ReadUtf8Identifier(removedControllerPairingIdentifier);
 
-            AccessoryServer.PairedClientPublicKeys.Remove(acpiGuid);
+            AccessoryServer.PairedClientsLtPk.Remove(acpiGuid);
+            m_Logger.LogInformation("Removed {guid}", acpiGuid);
 
             /// 5.11.2 - 4
             return WritePairingState(tx, 2);
@@ -590,48 +583,32 @@ namespace HomeKit.Hap
             // todo
 
             /// 5.12.2 - 3
-            var controllerCount = AccessoryServer.PairedClientPublicKeys.Count - 1;
+            var controllerCount = AccessoryServer.PairedClientsLtPk.Count;
 
-            Span<byte> content = stackalloc byte[3 + 75 + ((2 + 75) * controllerCount)];
+            Span<byte> content = stackalloc byte[3 + ((75 + 2) * controllerCount)];
             var contentPosition = 0;
 
             // 3
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.State, 2);
 
-            if (AccessoryServer.MainControlerPermissions is null)
-            {
-                throw new NotImplementedException();
-            }
-
-            // 75
-            contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.Identifier, AccessoryServer.MainControlerIdentifier);
-            contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.PublicKey, AccessoryServer.MainControlerLtPk);
-            contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.Permissions, AccessoryServer.MainControlerPermissions.Value);
-
             Span<byte> additionalIdentifier = stackalloc byte[36];
 
-            var keys = AccessoryServer.PairedClientPublicKeys.Keys.ToArray();
-            for (int i = 0; i < controllerCount; i++)
+            foreach (var (id, ltpk) in AccessoryServer.PairedClientsLtPk)
             {
-                var key = keys[i];
-                Utils.WriteUtf8Identifier(keys[i], additionalIdentifier);
-                if (additionalIdentifier.SequenceEqual(AccessoryServer.MainControlerIdentifier))
-                {
-                    continue;
-                }
+                Utils.WriteUtf8Identifier(id, additionalIdentifier);
 
-                // 2
+                var perms = AccessoryServer.PairedClientsPerms[id];
+
+                contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.Identifier, additionalIdentifier);
+                contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.PublicKey, ltpk);
+                contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.Permissions, perms);
+
                 content[contentPosition++] = (byte)TlvType.Separator;
                 content[contentPosition++] = 0x00;
-
-                // 75
-                contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.Identifier, additionalIdentifier);
-                contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.PublicKey, AccessoryServer.PairedClientPublicKeys[key]);
-                contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.Permissions, AccessoryServer.PairedClientPermissions[key]);
             }
 
             /// 5.12.2 - 4
-            return WriteHapContent(tx, content);
+            return WriteHapContent(tx, content[..^2]);
         }
 
         private int GetAccessories(ReadOnlySpan<byte> rx, Span<byte> tx)
