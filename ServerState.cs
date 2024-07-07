@@ -8,45 +8,39 @@ namespace HomeKit
 {
     public class ServerState
     {
-        public required byte[] ServerLtSk { get; init; }
-        public required byte[] ServerLtPk { get; init; }
-        public required List<PairedClient> PairedClients { get; init; }
-
-        public static ServerState FromPath(string path, string mac)
+        private static readonly JsonSerializerOptions m_JsonOptions = new()
         {
-            var directoryPath = Path.GetDirectoryName(path);
-            var filePath = Path.Join(directoryPath, $"server_state_{mac.Replace(':', '_')}.json");
+            WriteIndented = true
+        };
 
-            if (!File.Exists(filePath))
-            {
-                var secretKey = Signer.GeneratePrivateKey();
-                var publicKey = secretKey.ExtractPublicKey();
+        public byte[] ServerLtSk { get; init; }
+        public byte[] ServerLtPk { get; init; }
+        public List<PairedClient> PairedClients { get; init; }
 
-                return new ServerState()
-                {
-                    ServerLtSk = secretKey.ToArray(),
-                    ServerLtPk = publicKey.ToArray(),
-                    PairedClients = new()
-                };
-            }
-
-            using var fileStream = File.OpenRead(filePath);
-            var state = JsonSerializer.Deserialize<ServerState>(fileStream);
-
-            return state!;
+        public ServerState()
+        {
+            var secretKey = Signer.GeneratePrivateKey();
+            var publicKey = secretKey.ExtractPublicKey();
+            ServerLtSk = secretKey.ToArray();
+            ServerLtPk = publicKey.ToArray();
+            PairedClients = new();
         }
 
-        public void Save(string path, string mac)
+        public static ServerState Load(string filePath)
         {
-            var directoryPath = Path.GetDirectoryName(path);
-            var filePath = Path.Join(directoryPath, $"server_state_{mac.Replace(':', '_')}.json");
-
-            using var fileStream = File.OpenWrite(filePath);
-
-            JsonSerializer.Serialize(fileStream, this, new JsonSerializerOptions()
+            if (File.Exists(filePath))
             {
-                WriteIndented = true
-            });
+                using var fileStream = File.OpenRead(filePath);
+                return JsonSerializer.Deserialize<ServerState>(fileStream)!;
+            }
+
+            return new ServerState();
+        }
+
+        public void Save(string filePath)
+        {
+            using var fileStream = File.OpenWrite(filePath);
+            JsonSerializer.Serialize(fileStream, this, m_JsonOptions);
         }
     }
 

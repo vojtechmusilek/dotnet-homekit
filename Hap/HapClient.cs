@@ -190,9 +190,7 @@ namespace HomeKit.Hap
             m_Logger.LogInformation("Pair setup M1->M2");
 
             /// 5.6.2 - 1
-            // todo if paired respond unavailable
-            var paired = false;
-            if (paired)
+            if (m_AccessoryServer.IsPaired())
             {
                 return WriteError(tx, TlvError.Unavailable, 2);
             }
@@ -218,7 +216,7 @@ namespace HomeKit.Hap
             Random.Shared.NextBytes(salt);
 
             m_SrpServer.SetSalt(salt);
-            m_SrpServer.SetUsernameAndPassword("Pair-Setup", m_AccessoryServer.PinCode);
+            m_SrpServer.SetUsernameAndPassword("Pair-Setup", m_AccessoryServer.GetPinCode());
 
             /// 5.6.2 - 9
             Span<byte> accessorySrpPublicKey = stackalloc byte[384];
@@ -312,7 +310,7 @@ namespace HomeKit.Hap
             /// 5.6.6.1 - 6
             var guid = Utils.ReadUtf8Identifier(iosDevicePairingId);
 
-            m_AccessoryServer.State.PairedClients.Add(new PairedClient()
+            m_AccessoryServer.AddPairedClient(new PairedClient()
             {
                 Id = guid,
                 ClientLtPk = iosDeviceLtPk.ToArray(),
@@ -322,8 +320,8 @@ namespace HomeKit.Hap
             /// M6 Response Generation
 
             /// 5.6.6.2 - 1
-            var accessoryLtSk = m_AccessoryServer.State.ServerLtSk;
-            var accessoryLtPk = m_AccessoryServer.State.ServerLtPk;
+            var accessoryLtSk = m_AccessoryServer.GetLtSk();
+            var accessoryLtPk = m_AccessoryServer.GetLtPk();
 
             /// 5.6.6.2 - 2
             Span<byte> accessoryX = stackalloc byte[32];
@@ -331,7 +329,7 @@ namespace HomeKit.Hap
 
             /// 5.6.6.2 - 3
             Span<byte> accessoryPairingId = stackalloc byte[17];
-            Utils.WriteUtf8Bytes(accessoryPairingId, m_AccessoryServer.MacAddress);
+            Utils.WriteUtf8Bytes(accessoryPairingId, m_AccessoryServer.GetMacAddress());
 
             Span<byte> accessoryInfo = stackalloc byte[81];
             accessoryX.CopyTo(accessoryInfo[0..]);
@@ -393,7 +391,7 @@ namespace HomeKit.Hap
 
             /// 5.7.2 - 3
             Span<byte> accessoryPairingId = stackalloc byte[17];
-            Utils.WriteUtf8Bytes(accessoryPairingId, m_AccessoryServer.MacAddress);
+            Utils.WriteUtf8Bytes(accessoryPairingId, m_AccessoryServer.GetMacAddress());
 
             Span<byte> accessoryInfo = stackalloc byte[81];
             accessoryCurve.PublicKey.CopyTo(accessoryInfo[0..]);
@@ -401,7 +399,7 @@ namespace HomeKit.Hap
             iosDeviceCurvePK.CopyTo(accessoryInfo[49..]);
 
             /// 5.7.2 - 4
-            var accessorySignature = Signer.Sign(accessoryInfo, m_AccessoryServer.State.ServerLtSk, m_AccessoryServer.State.ServerLtPk); // todo 64
+            var accessorySignature = Signer.Sign(accessoryInfo, m_AccessoryServer.GetLtSk(), m_AccessoryServer.GetLtPk()); // todo 64
 
             /// 5.7.2 - 5
             Span<byte> subTlv = stackalloc byte[85];
@@ -544,11 +542,8 @@ namespace HomeKit.Hap
                 m_Logger.LogInformation("Added {id}", id);
             }
 
-            /// 5.10.2 - 5
+            /// 5.10.2 - 5,6
             return WritePairingState(tx, 2);
-
-            /// 5.10.2 - 6
-            // todo - check if sending using right encryption
         }
 
         private int RemovePairing(ReadOnlySpan<byte> rx, Span<byte> tx)
@@ -593,8 +588,8 @@ namespace HomeKit.Hap
             // todo
 
             /// 5.12.2 - 3
-            var controllerCount = m_AccessoryServer.State.PairedClients.Count;
-            Span<byte> content = stackalloc byte[3 + ((75 + 2) * controllerCount)];
+            var pairedClients = m_AccessoryServer.GetPairedClients();
+            Span<byte> content = stackalloc byte[3 + ((75 + 2) * pairedClients.Length)];
             var contentPosition = 0;
 
             // 3
@@ -602,7 +597,7 @@ namespace HomeKit.Hap
 
             Span<byte> additionalIdentifier = stackalloc byte[36];
 
-            foreach (var pairedClient in m_AccessoryServer.State.PairedClients)
+            foreach (var pairedClient in pairedClients)
             {
                 Utils.WriteUtf8Identifier(pairedClient.Id, additionalIdentifier);
 
@@ -658,9 +653,8 @@ namespace HomeKit.Hap
 
         private int GetCharacteristics(ReadOnlySpan<byte> rx, Span<byte> tx, string query)
         {
-            // "id=1.7,1.5"
+            /// 6.7.4.2
             var queries = query.Split('&');
-
             var ids = queries.FirstOrDefault(x => x.Split('=')[0] == "id")?.Split('=')[1];
             if (ids is null)
             {
@@ -682,12 +676,14 @@ namespace HomeKit.Hap
                     var characteristic = m_AccessoryServer.GetCharacteristic(aid, iid);
                     if (characteristic is null)
                     {
-                        characteristics[i] = new CharacteristicRead()
-                        {
-                            Aid = aid,
-                            Iid = iid,
-                            Status = HapStatusCode.ResourceDoesNotExist.GetHashCode(),
-                        };
+                        throw new NotImplementedException();
+
+                        //characteristics[i] = new CharacteristicRead()
+                        //{
+                        //    Aid = aid,
+                        //    Iid = iid,
+                        //    Status = HapStatusCode.ResourceDoesNotExist.GetHashCode(),
+                        //};
                     }
                     else
                     {
@@ -695,7 +691,6 @@ namespace HomeKit.Hap
                         {
                             Aid = aid,
                             Iid = iid,
-                            //Status = HapStatusCode.Success.GetHashCode(), // todo
                             Value = characteristic.Value,
                         };
                     }

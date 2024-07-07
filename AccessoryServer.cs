@@ -1,9 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Text.Json.Serialization;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using HomeKit.Hap;
@@ -17,55 +18,60 @@ namespace HomeKit
 {
     public class AccessoryServer
     {
-        private MdnsClient m_MdnsClient = null!;
-
-        private Task? m_ClientReceiverTask;
-
-        private readonly HashSet<HapClient> m_Clients = new();
-
         private readonly ILoggerFactory m_LoggerFactory;
         private readonly ILogger m_Logger;
 
+        private MdnsClient? m_MdnsClient = null!;
+        private Task? m_ClientReceiverTask;
+        private CancellationTokenSource m_StoppingToken = null!;
+
+        private readonly HashSet<HapClient> m_Clients = new();
+
+        private readonly IPAddress m_IpAddress;
+        private readonly ushort m_Port;
+        private readonly string m_PinCode;
+        private readonly string m_SetupId;
+        private readonly string m_MacAddress;
+
+        private readonly ServerState m_State;
+        private readonly string m_StateFilePath;
+
         public HashSet<Accessory> Accessories { get; }
 
-        [JsonIgnore] public IPAddress IpAddress { get; }
-        [JsonIgnore] public ushort Port { get; }
-        [JsonIgnore] public string PinCode { get; }
-        [JsonIgnore] public string SetupId { get; }
-        [JsonIgnore] public string MacAddress { get; }
-
-        [JsonIgnore] public ServerState State { get; }
-
-        private readonly string m_StatePath;
-
-        public AccessoryServer(string? ipAddress = null, ushort? port = null, string? pinCode = null, string? macAddress = null, string? statePath = null, ILoggerFactory? loggerFactory = null)
+        public AccessoryServer(string? ipAddress = null, ushort? port = null, string? pinCode = null, string? macAddress = null, string? stateDirectory = null, ILoggerFactory? loggerFactory = null)
         {
             Accessories = new();
 
-            IpAddress = string.IsNullOrWhiteSpace(ipAddress) ? IPAddress.Any : IPAddress.Parse(ipAddress);
-            Port = port ?? 23232;
+            m_IpAddress = string.IsNullOrWhiteSpace(ipAddress) ? IPAddress.Any : IPAddress.Parse(ipAddress);
+            m_Port = port ?? 23232;
 
-            PinCode = pinCode ?? Utils.GeneratePinCode();
-            MacAddress = macAddress ?? Utils.GenerateMacAddress();
-            SetupId = Utils.GenerateSetupId();
+            m_PinCode = pinCode ?? Utils.GeneratePinCode();
+            m_MacAddress = macAddress ?? Utils.GenerateMacAddress();
+            m_SetupId = Utils.GenerateSetupId();
 
             m_LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
             m_Logger = m_LoggerFactory.CreateLogger<AccessoryServer>();
 
-            m_StatePath = statePath ?? AppDomain.CurrentDomain.BaseDirectory;
+            var directoryPath = Path.GetDirectoryName(stateDirectory ?? AppDomain.CurrentDomain.BaseDirectory);
+            m_StateFilePath = Path.Join(directoryPath, $"server_state_{m_MacAddress.Replace(':', '_')}.json");
 
-            State = ServerState.FromPath(m_StatePath, MacAddress);
+            m_State = ServerState.Load(m_StateFilePath);
         }
 
         public PairedClient? GetPairedClient(Guid id)
         {
-            return State.PairedClients.Find(x => x.Id == id);
+            return m_State.PairedClients.Find(x => x.Id == id);
+        }
+
+        public ReadOnlySpan<PairedClient> GetPairedClients()
+        {
+            return CollectionsMarshal.AsSpan(m_State.PairedClients);
         }
 
         public void AddPairedClient(PairedClient pairedClient)
         {
-            State.PairedClients.Add(pairedClient);
-            State.Save(m_StatePath, MacAddress);
+            m_State.PairedClients.Add(pairedClient);
+            m_State.Save(m_StateFilePath);
         }
 
         public void RemovePairedClient(Guid id)
@@ -73,15 +79,35 @@ namespace HomeKit
             var client = GetPairedClient(id);
             if (client is not null)
             {
-                State.PairedClients.Remove(client);
+                m_State.PairedClients.Remove(client);
             }
 
-            State.Save(m_StatePath, MacAddress);
+            m_State.Save(m_StateFilePath);
         }
 
         public bool IsPaired()
         {
-            return State.PairedClients.Count > 0;
+            return m_State.PairedClients.Count > 0;
+        }
+
+        public ReadOnlySpan<byte> GetLtSk()
+        {
+            return m_State.ServerLtSk;
+        }
+
+        public ReadOnlySpan<byte> GetLtPk()
+        {
+            return m_State.ServerLtPk;
+        }
+
+        public string GetPinCode()
+        {
+            return m_PinCode;
+        }
+
+        public string GetMacAddress()
+        {
+            return m_MacAddress;
         }
 
         public Characteristic? GetCharacteristic(int aid, int iid)
@@ -92,13 +118,27 @@ namespace HomeKit
                 .FirstOrDefault(cha => cha.Iid == iid);
         }
 
-        public async Task Publish(CancellationToken cancellationToken)
+        public async Task StartAsync(CancellationToken cancellationToken)
         {
+            m_StoppingToken = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
             AssignIds();
             PrintSetupMessage();
 
-            await SetupHap(cancellationToken);
-            await SetupMdns(cancellationToken);
+            await SetupHap(m_StoppingToken.Token);
+            await SetupMdns(m_StoppingToken.Token);
+        }
+
+        public async Task StopAsync(CancellationToken cancellationToken)
+        {
+            await m_StoppingToken.CancelAsync();
+
+            await Task.WhenAll(m_Clients.Select(x => x.StopAsync()));
+
+            if (m_ClientReceiverTask is not null)
+            {
+                await m_ClientReceiverTask;
+            }
         }
 
         private void AssignIds()
@@ -122,16 +162,16 @@ namespace HomeKit
             }
         }
 
-        private Task SetupHap(CancellationToken cancellationToken)
+        private Task SetupHap(CancellationToken stoppingToken)
         {
-            m_ClientReceiverTask = ClientReceiverTask(cancellationToken);
+            m_ClientReceiverTask = ClientReceiverTask(stoppingToken);
             return Task.CompletedTask;
         }
 
-        private async Task SetupMdns(CancellationToken cancellationToken)
+        private async Task SetupMdns(CancellationToken stoppingToken)
         {
             var nis = Utils.GetMulticastNetworkInterfaces();
-            var ni = nis.FirstOrDefault(x => x.GetIPProperties().UnicastAddresses.Any(y => y.Address.Equals(IpAddress)));
+            var ni = nis.FirstOrDefault(x => x.GetIPProperties().UnicastAddresses.Any(y => y.Address.Equals(m_IpAddress)));
             if (ni is null)
             {
                 m_Logger.LogError("Failed to find network interface with specified address");
@@ -144,25 +184,24 @@ namespace HomeKit
             m_MdnsClient.OnPacketReceived += MdnsClient_OnPacketReceived;
             m_MdnsClient.BroadcastPeriodically(CreateBroadcastPacket());
 
-            await m_MdnsClient.StartAsync(cancellationToken);
+            await m_MdnsClient.StartAsync(stoppingToken);
         }
 
-        private async Task ClientReceiverTask(CancellationToken cancellationToken)
+        private async Task ClientReceiverTask(CancellationToken stoppingToken)
         {
-            // todo IPAddress.Any?
-            var listener = new TcpListener(IPAddress.Any, Port);
+            var listener = new TcpListener(IPAddress.Any, m_Port);
             listener.Start();
 
-            while (!cancellationToken.IsCancellationRequested)
+            while (!stoppingToken.IsCancellationRequested)
             {
-                var client = await listener.AcceptTcpClientAsync(cancellationToken);
+                var client = await listener.AcceptTcpClientAsync(stoppingToken);
 
                 m_Logger.LogInformation("Accepted new TCP client {remote}", client.Client.RemoteEndPoint);
 
                 var hapClient = new HapClient(this, client, m_LoggerFactory.CreateLogger<HapClient>());
                 m_Clients.Add(hapClient);
 
-                await hapClient.StartAsync(CancellationToken.None);
+                await hapClient.StartAsync(stoppingToken);
             }
         }
 
@@ -180,7 +219,7 @@ namespace HomeKit
                     continue;
                 }
 
-                m_MdnsClient.Broadcast(CreateBroadcastPacket());
+                m_MdnsClient?.Broadcast(CreateBroadcastPacket());
             }
         }
 
@@ -192,7 +231,7 @@ namespace HomeKit
 
             var firstAccessory = Accessories.First();
 
-            var mac = MacAddress.Replace(":", "");
+            var mac = m_MacAddress.Replace(":", "");
             var identifier = firstAccessory.Name + "@" + mac + "." + Const.MdnsHapDomainName;
             var host = mac + "." + Const.MdnsLocal;
 
@@ -222,7 +261,7 @@ namespace HomeKit
                         Ttl = PacketRecord.ShortTtl,
                         Data = new PacketRecordData_A()
                         {
-                            IpAddress = IpAddress
+                            IpAddress = m_IpAddress
                         }
                     },
                     new()
@@ -235,7 +274,7 @@ namespace HomeKit
                         {
                             Priority = 0,
                             Weight = 0,
-                            Port = Port,
+                            Port = m_Port,
                             Target = host,
                         }
                     },
@@ -251,9 +290,9 @@ namespace HomeKit
                             {
                                 /// 6.4
                                 { "md", firstAccessory.Name },
-                                { "id", MacAddress },
+                                { "id", m_MacAddress },
                                 { "ci", firstAccessory.Category.GetHashCode().ToString() },
-                                { "sh", Utils.GenerateSetupHash(SetupId, MacAddress) },
+                                { "sh", Utils.GenerateSetupHash(m_SetupId, m_MacAddress) },
 
                                 { "s#", IsPaired() ? "2" : "1" }, // todo state 1=unpaired 2=paired
                                 { "sf", IsPaired() ? "0" : "1" }, // todo status 0=hidden 1=discoverable
@@ -275,13 +314,13 @@ namespace HomeKit
         {
             var firstAccessory = Accessories.First();
 
-            m_Logger.LogTrace("MacAddress: {MacAddress}", MacAddress);
-            m_Logger.LogTrace("IpAddress: {IpAddress}", IpAddress);
-            m_Logger.LogTrace("Port: {Port}", Port);
-            m_Logger.LogTrace("PinCode: {PinCode}", PinCode);
+            m_Logger.LogTrace("MacAddress: {MacAddress}", m_MacAddress);
+            m_Logger.LogTrace("IpAddress: {IpAddress}", m_IpAddress);
+            m_Logger.LogTrace("Port: {Port}", m_Port);
+            m_Logger.LogTrace("PinCode: {PinCode}", m_PinCode);
 
             var qrGenerator = new QRCodeGenerator();
-            var uri = Utils.GenerateXhmUri(firstAccessory.Category, PinCode, SetupId);
+            var uri = Utils.GenerateXhmUri(firstAccessory.Category, m_PinCode, m_SetupId);
             var qrCodeData = qrGenerator.CreateQrCode(uri, QRCodeGenerator.ECCLevel.Q); // todo level
             var qrCode = new AsciiQRCode(qrCodeData);
             var qrCodeAsAsciiArt = qrCode.GetGraphic(1);
