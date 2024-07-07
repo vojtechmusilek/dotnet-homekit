@@ -2,7 +2,6 @@
 {
     public enum Category
     {
-        None = 0,
         Other = 1,
         Bridge = 2,
         Fan = 3,

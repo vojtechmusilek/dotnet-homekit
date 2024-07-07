@@ -20,15 +20,15 @@ namespace HomeKit.Hap
         private readonly ILogger m_Logger;
         private readonly Socket m_Socket;
         private readonly NetworkStream m_TcpStream;
+
+        private readonly AccessoryServer m_AccessoryServer;
         private readonly TcpClient m_TcpClient;
-        private readonly string m_PinCode;
-        private readonly string m_MacAddress;
 
         private readonly Srp6aServer m_SrpServer = new();
         private readonly HapAead m_Aead;
 
-        private readonly byte[] m_ReadBuffer = new byte[2048];
-        private readonly byte[] m_WriteBuffer = new byte[2048];
+        private readonly byte[] m_ReadBuffer = new byte[1024];
+        private readonly byte[] m_WriteBuffer = new byte[4096];
 
         private readonly byte[] m_AccessoryCurvePk = new byte[32];
         private readonly byte[] m_IosDeviceCurvePk = new byte[32];
@@ -39,11 +39,10 @@ namespace HomeKit.Hap
         private Task m_ReceiverTask = null!;
         private CancellationTokenSource m_StoppingToken = null!;
 
-        public HapClient(TcpClient tcpClient, string pinCode, string macAddress, ILogger<HapClient> logger)
+        public HapClient(AccessoryServer server, TcpClient tcpClient, ILogger<HapClient> logger)
         {
+            m_AccessoryServer = server;
             m_TcpClient = tcpClient;
-            m_PinCode = pinCode;
-            m_MacAddress = macAddress;
             m_Logger = logger;
 
             m_Socket = tcpClient.Client;
@@ -219,7 +218,7 @@ namespace HomeKit.Hap
             Random.Shared.NextBytes(salt);
 
             m_SrpServer.SetSalt(salt);
-            m_SrpServer.SetUsernameAndPassword("Pair-Setup", m_PinCode);
+            m_SrpServer.SetUsernameAndPassword("Pair-Setup", m_AccessoryServer.PinCode);
 
             /// 5.6.2 - 9
             Span<byte> accessorySrpPublicKey = stackalloc byte[384];
@@ -312,24 +311,27 @@ namespace HomeKit.Hap
 
             /// 5.6.6.1 - 6
             var guid = Utils.ReadUtf8Identifier(iosDevicePairingId);
-            AccessoryServer.PairedClientsLtPk[guid] = iosDeviceLtPk.ToArray();
-            AccessoryServer.PairedClientsPerms[guid] = 1;
+
+            m_AccessoryServer.State.PairedClients.Add(new PairedClient()
+            {
+                Id = guid,
+                ClientLtPk = iosDeviceLtPk.ToArray(),
+                ClientPermissions = 1
+            });
 
             /// M6 Response Generation
 
             /// 5.6.6.2 - 1
-            var accessoryLtSk = Accessory.AccessoryLtSk;
-            var accessoryLtPk = Accessory.AccessoryLtPk;
+            var accessoryLtSk = m_AccessoryServer.State.ServerLtSk;
+            var accessoryLtPk = m_AccessoryServer.State.ServerLtPk;
 
             /// 5.6.6.2 - 2
             Span<byte> accessoryX = stackalloc byte[32];
             Crypto.HkdfSha512DeriveKey(accessoryX, sharedSecret, "Pair-Setup-Accessory-Sign-Salt", "Pair-Setup-Accessory-Sign-Info");
 
-            var mac = Encoding.UTF8.GetBytes(m_MacAddress);
-
             /// 5.6.6.2 - 3
             Span<byte> accessoryPairingId = stackalloc byte[17];
-            Utils.WriteUtf8Bytes(accessoryPairingId, m_MacAddress);
+            Utils.WriteUtf8Bytes(accessoryPairingId, m_AccessoryServer.MacAddress);
 
             Span<byte> accessoryInfo = stackalloc byte[81];
             accessoryX.CopyTo(accessoryInfo[0..]);
@@ -378,20 +380,20 @@ namespace HomeKit.Hap
             m_Logger.LogInformation("Pair verify M1->M2");
 
             /// 5.7.2 - 1
-            var accessoryCurve = X25519KeyAgreement.GenerateKeyPair(); // pk 32 sk 32 todo 
+            var accessoryCurve = X25519KeyAgreement.GenerateKeyPair(); // todo 32, 32
             accessoryCurve.PublicKey.AsSpan().CopyTo(m_AccessoryCurvePk);
 
             /// 5.7.2 - 2
             Span<byte> iosDeviceCurvePK = stackalloc byte[32];
             TlvReader.ReadValue(TlvType.PublicKey, rx, iosDeviceCurvePK);
 
-            var sharedSecret = X25519KeyAgreement.Agreement(accessoryCurve.PrivateKey, iosDeviceCurvePK.ToArray()); // todo
+            var sharedSecret = X25519KeyAgreement.Agreement(accessoryCurve.PrivateKey, iosDeviceCurvePK.ToArray()); // todo 32
             sharedSecret.AsSpan().CopyTo(m_SharedSecret);
             iosDeviceCurvePK.CopyTo(m_IosDeviceCurvePk);
 
             /// 5.7.2 - 3
             Span<byte> accessoryPairingId = stackalloc byte[17];
-            Utils.WriteUtf8Bytes(accessoryPairingId, m_MacAddress);
+            Utils.WriteUtf8Bytes(accessoryPairingId, m_AccessoryServer.MacAddress);
 
             Span<byte> accessoryInfo = stackalloc byte[81];
             accessoryCurve.PublicKey.CopyTo(accessoryInfo[0..]);
@@ -399,7 +401,7 @@ namespace HomeKit.Hap
             iosDeviceCurvePK.CopyTo(accessoryInfo[49..]);
 
             /// 5.7.2 - 4
-            var accessorySignature = Signer.Sign(accessoryInfo, Accessory.AccessoryLtSk, Accessory.AccessoryLtPk); // 64
+            var accessorySignature = Signer.Sign(accessoryInfo, m_AccessoryServer.State.ServerLtSk, m_AccessoryServer.State.ServerLtPk); // todo 64
 
             /// 5.7.2 - 5
             Span<byte> subTlv = stackalloc byte[85];
@@ -448,7 +450,9 @@ namespace HomeKit.Hap
             TlvReader.ReadValue(TlvType.Identifier, decryptedData, iosDevicePairingId);
 
             var iosDevicePairingGuid = Utils.ReadUtf8Identifier(iosDevicePairingId);
-            if (!AccessoryServer.PairedClientsLtPk.TryGetValue(iosDevicePairingGuid, out var iosDeviceLTPK))
+
+            var pairedClient = m_AccessoryServer.GetPairedClient(iosDevicePairingGuid);
+            if (pairedClient is null)
             {
                 return WriteError(tx, TlvError.Authentication, 4);
             }
@@ -462,7 +466,7 @@ namespace HomeKit.Hap
             iosDevicePairingId.CopyTo(iosDeviceInfo[32..]);
             m_AccessoryCurvePk.CopyTo(iosDeviceInfo[68..]);
 
-            bool valid = Signer.Validate(iosDeviceSignature, iosDeviceInfo, iosDeviceLTPK);
+            bool valid = Signer.Validate(iosDeviceSignature, iosDeviceInfo, pairedClient.ClientLtPk);
             if (!valid)
             {
                 return WriteError(tx, TlvError.Authentication, 4);
@@ -511,27 +515,33 @@ namespace HomeKit.Hap
             var additionalControllerPermissions = TlvReader.ReadValue(TlvType.Permissions, rx);
             if (additionalControllerPermissions is null) throw new MissingFieldException("Permissions");
 
-            var acpiGuid = Utils.ReadUtf8Identifier(additionalControllerPairingIdentifier);
+            var id = Utils.ReadUtf8Identifier(additionalControllerPairingIdentifier);
+            var pairedClient = m_AccessoryServer.GetPairedClient(id);
 
-            if (AccessoryServer.PairedClientsLtPk.TryGetValue(acpiGuid, out byte[]? value))
+            if (pairedClient is not null)
             {
-                if (!value.AsSpan().SequenceEqual(additionalControllerLtPk))
+                if (pairedClient.ClientLtPk.AsSpan().SequenceEqual(additionalControllerLtPk))
                 {
-                    return WriteError(tx, TlvError.Unknown, 2);
+                    pairedClient.ClientPermissions = additionalControllerPermissions.Value;
+                    m_Logger.LogInformation("Updated {id}", id);
                 }
                 else
                 {
-                    m_Logger.LogInformation("Updated {guid}", acpiGuid);
-                    AccessoryServer.PairedClientsPerms[acpiGuid] = additionalControllerPermissions.Value;
+                    return WriteError(tx, TlvError.Unknown, 2);
                 }
             }
             else
             {
                 // todo check kTLVError_MaxPeers
 
-                m_Logger.LogInformation("Added {guid}", acpiGuid);
-                AccessoryServer.PairedClientsLtPk[acpiGuid] = additionalControllerLtPk.ToArray();
-                AccessoryServer.PairedClientsPerms[acpiGuid] = additionalControllerPermissions.Value;
+                m_AccessoryServer.State.PairedClients.Add(new PairedClient()
+                {
+                    Id = id,
+                    ClientLtPk = additionalControllerLtPk.ToArray(),
+                    ClientPermissions = additionalControllerPermissions.Value
+                });
+
+                m_Logger.LogInformation("Added {id}", id);
             }
 
             /// 5.10.2 - 5
@@ -554,10 +564,10 @@ namespace HomeKit.Hap
             /// 5.11.2 - 3
             Span<byte> removedControllerPairingIdentifier = stackalloc byte[36];
             var acpi = TlvReader.ReadValue(TlvType.Identifier, rx, removedControllerPairingIdentifier);
-            var acpiGuid = Utils.ReadUtf8Identifier(removedControllerPairingIdentifier);
+            var id = Utils.ReadUtf8Identifier(removedControllerPairingIdentifier);
 
-            AccessoryServer.PairedClientsLtPk.Remove(acpiGuid);
-            m_Logger.LogInformation("Removed {guid}", acpiGuid);
+            m_AccessoryServer.RemovePairedClient(id);
+            m_Logger.LogInformation("Removed {id}", id);
 
             /// 5.11.2 - 4
             return WritePairingState(tx, 2);
@@ -583,8 +593,7 @@ namespace HomeKit.Hap
             // todo
 
             /// 5.12.2 - 3
-            var controllerCount = AccessoryServer.PairedClientsLtPk.Count;
-
+            var controllerCount = m_AccessoryServer.State.PairedClients.Count;
             Span<byte> content = stackalloc byte[3 + ((75 + 2) * controllerCount)];
             var contentPosition = 0;
 
@@ -593,15 +602,13 @@ namespace HomeKit.Hap
 
             Span<byte> additionalIdentifier = stackalloc byte[36];
 
-            foreach (var (id, ltpk) in AccessoryServer.PairedClientsLtPk)
+            foreach (var pairedClient in m_AccessoryServer.State.PairedClients)
             {
-                Utils.WriteUtf8Identifier(id, additionalIdentifier);
-
-                var perms = AccessoryServer.PairedClientsPerms[id];
+                Utils.WriteUtf8Identifier(pairedClient.Id, additionalIdentifier);
 
                 contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.Identifier, additionalIdentifier);
-                contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.PublicKey, ltpk);
-                contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.Permissions, perms);
+                contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.PublicKey, pairedClient.ClientLtPk);
+                contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.Permissions, pairedClient.ClientPermissions);
 
                 content[contentPosition++] = (byte)TlvType.Separator;
                 content[contentPosition++] = 0x00;
@@ -613,11 +620,7 @@ namespace HomeKit.Hap
 
         private int GetAccessories(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
-            // tmp 
-            var accessoryServer = new AccessoryServer();
-            accessoryServer.Accessories.Add(Accessory.Temporary_Instance);
-
-            var json = JsonSerializer.Serialize(accessoryServer, Utils.HapJsonOptions);
+            var json = JsonSerializer.Serialize(m_AccessoryServer, Utils.HapJsonOptions);
             var jsonbytes = Encoding.UTF8.GetBytes(json);
 
             return WriteHapContent(tx, jsonbytes);
@@ -656,16 +659,26 @@ namespace HomeKit.Hap
                     var aid = int.Parse(split[0]);
                     var iid = int.Parse(split[1]);
 
-                    var characteristic = AccessoryServer.TemporaryCharList[iid];
-                    var val = characteristic.Value;
-
-                    characteristics[i] = new CharacteristicRead()
+                    var characteristic = m_AccessoryServer.GetCharacteristic(aid, iid);
+                    if (characteristic is null)
                     {
-                        Aid = aid,
-                        Iid = iid,
-                        Value = val,
-                        //Status = 0,
-                    };
+                        characteristics[i] = new CharacteristicRead()
+                        {
+                            Aid = aid,
+                            Iid = iid,
+                            Status = HapStatusCode.ResourceDoesNotExist.GetHashCode(),
+                        };
+                    }
+                    else
+                    {
+                        characteristics[i] = new CharacteristicRead()
+                        {
+                            Aid = aid,
+                            Iid = iid,
+                            Status = HapStatusCode.Success.GetHashCode(),
+                            Value = characteristic.Value,
+                        };
+                    }
                 }
             }
 

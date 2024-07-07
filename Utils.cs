@@ -4,6 +4,7 @@ using System.Buffers.Text;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.NetworkInformation;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -30,24 +31,41 @@ namespace HomeKit
 
         public static string ConvertToBase36(long value)
         {
-            var sb = new StringBuilder();
+            var base36 = new StringBuilder();
             while (value > 0)
             {
-                sb.Insert(0, m_AlphaNumChars[(int)(value % 36)]);
+                base36.Insert(0, m_AlphaNumChars[(int)(value % 36)]);
                 value /= 36;
             }
-            return sb.ToString();
+            return base36.ToString();
         }
 
         public static string GenerateSetupId()
         {
-            var sb = new StringBuilder();
+            var setupId = new StringBuilder();
             for (int i = 0; i <= 3; i++)
             {
                 var index = Random.Shared.Next(0, m_AlphaNumChars.Length - 1);
-                sb.Append(m_AlphaNumChars[index]);
+                setupId.Append(m_AlphaNumChars[index]);
             }
-            return sb.ToString();
+            return setupId.ToString();
+        }
+
+        public static string GeneratePinCode()
+        {
+            var pinCode = new StringBuilder();
+            for (int i = 0; i < 10; i++)
+            {
+                if (i is 3 or 6)
+                {
+                    pinCode.Append('-');
+                }
+                else
+                {
+                    pinCode.Append(Random.Shared.Next(10));
+                }
+            }
+            return pinCode.ToString();
         }
 
         public static string GenerateXhmUri(Category category, string pinCode, string setupId)
@@ -71,10 +89,17 @@ namespace HomeKit
 
         public static string GenerateMacAddress()
         {
-            // todo validate if i need to set locally administered and unicast bits
             var buffer = new byte[6];
             Random.Shared.NextBytes(buffer);
             return string.Join(':', buffer.Select(x => x.ToString("X2")));
+        }
+
+        public static string GenerateSetupHash(string setupId, string macAddres)
+        {
+            var plain = setupId + macAddres;
+            var bytes = Encoding.UTF8.GetBytes(plain);
+            var hashed = SHA512.HashData(bytes);
+            return Convert.ToBase64String(hashed.Take(4).ToArray());
         }
 
         public static NetworkInterface[] GetMulticastNetworkInterfaces()

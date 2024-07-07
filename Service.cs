@@ -26,7 +26,7 @@ namespace HomeKit
 
         private readonly ServiceDef m_Def;
 
-        public int Iid { get; }
+        public int Iid { get; set; }
         public string Type { get; }
         public List<Characteristic> Characteristics { get; }
 
@@ -35,7 +35,6 @@ namespace HomeKit
             m_Def = m_Services[serviceType];
 
             Type = Utils.GetHapType(m_Def.Uuid);
-            Iid = AccessoryServer.GenerateInstanceId();
             Characteristics = new();
 
             foreach (var type in m_Def.RequiredCharacteristics)

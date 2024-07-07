@@ -28,7 +28,7 @@ namespace HomeKit
         private readonly CharacteristicDef m_Def;
 
         public string Type { get; }
-        public int Iid { get; }
+        public int Iid { get; set; }
         public object? Value { get; set; }
         public List<string> Perms => m_Def.Permissions;
         public string Format => m_Def.Format;
@@ -38,7 +38,6 @@ namespace HomeKit
             m_Def = m_Characteristics[type];
 
             Type = Utils.GetHapType(m_Def.Uuid);
-            Iid = AccessoryServer.GenerateInstanceId();
 
             if (m_Def.Format == "string")
             {
@@ -64,8 +63,6 @@ namespace HomeKit
             //{
             //    throw new NotImplementedException();
             //}
-
-            AccessoryServer.TemporaryCharList[Iid] = this;
         }
 
         public bool IsType(CharacteristicType type)
