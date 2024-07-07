@@ -36,6 +36,8 @@ namespace HomeKit
 
         [JsonIgnore] public ServerState State { get; }
 
+        private readonly string m_StatePath;
+
         public AccessoryServer(string? ipAddress = null, ushort? port = null, string? pinCode = null, string? macAddress = null, string? statePath = null, ILoggerFactory? loggerFactory = null)
         {
             Accessories = new();
@@ -50,12 +52,20 @@ namespace HomeKit
             m_LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
             m_Logger = m_LoggerFactory.CreateLogger<AccessoryServer>();
 
-            State = ServerState.FromPath(statePath ?? AppDomain.CurrentDomain.BaseDirectory, MacAddress);
+            m_StatePath = statePath ?? AppDomain.CurrentDomain.BaseDirectory;
+
+            State = ServerState.FromPath(m_StatePath, MacAddress);
         }
 
         public PairedClient? GetPairedClient(Guid id)
         {
             return State.PairedClients.Find(x => x.Id == id);
+        }
+
+        public void AddPairedClient(PairedClient pairedClient)
+        {
+            State.PairedClients.Add(pairedClient);
+            State.Save(m_StatePath, MacAddress);
         }
 
         public void RemovePairedClient(Guid id)
@@ -65,6 +75,8 @@ namespace HomeKit
             {
                 State.PairedClients.Remove(client);
             }
+
+            State.Save(m_StatePath, MacAddress);
         }
 
         public bool IsPaired()
@@ -246,7 +258,7 @@ namespace HomeKit
                                 { "s#", IsPaired() ? "2" : "1" }, // todo state 1=unpaired 2=paired
                                 { "sf", IsPaired() ? "0" : "1" }, // todo status 0=hidden 1=discoverable
                         
-                                { "c#", "1" }, // todo config num, increment when accessory changes
+                                { "c#", "2" }, // todo config num, increment when accessory changes
                                 
                                 { "pv", "1.1" },
                                 { "ff", "0" },

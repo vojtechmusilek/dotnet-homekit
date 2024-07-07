@@ -534,7 +534,7 @@ namespace HomeKit.Hap
             {
                 // todo check kTLVError_MaxPeers
 
-                m_AccessoryServer.State.PairedClients.Add(new PairedClient()
+                m_AccessoryServer.AddPairedClient(new PairedClient()
                 {
                     Id = id,
                     ClientLtPk = additionalControllerLtPk.ToArray(),
@@ -631,7 +631,27 @@ namespace HomeKit.Hap
             /// 6.7.2
             var request = JsonSerializer.Deserialize<CharacteristicWriteRequest>(rx, Utils.HapJsonOptions);
 
-            // todo process and if error reply error
+            foreach (var characteristicWrite in request.Characteristics)
+            {
+                var characteristic = m_AccessoryServer.GetCharacteristic(characteristicWrite.Aid, characteristicWrite.Iid);
+                if (characteristic is null)
+                {
+                    // todo handle error
+                    throw new NotImplementedException();
+                }
+
+                if (characteristicWrite.Ev.HasValue)
+                {
+                    // todo handle
+                    continue;
+                }
+
+                var parsedValue = characteristicWrite.GetParsedValue();
+                if (parsedValue is not null)
+                {
+                    characteristic.Value = parsedValue;
+                }
+            }
 
             return HttpWriter.WriteNoContent(tx);
         }
@@ -675,7 +695,7 @@ namespace HomeKit.Hap
                         {
                             Aid = aid,
                             Iid = iid,
-                            Status = HapStatusCode.Success.GetHashCode(),
+                            //Status = HapStatusCode.Success.GetHashCode(), // todo
                             Value = characteristic.Value,
                         };
                     }

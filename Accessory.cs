@@ -47,6 +47,7 @@ namespace HomeKit
             var service = new Service(ServiceType.AccessoryInformation);
             service.GetCharacteristic(CharacteristicType.Name)!.Value = Name;
             service.GetCharacteristic(CharacteristicType.SerialNumber)!.Value = "SN-" + Name;
+            //service.GetCharacteristic(CharacteristicType.Identify)!.Value = null;
 
             Services.Add(service);
         }
