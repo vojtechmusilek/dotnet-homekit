@@ -37,14 +37,19 @@ namespace HomeKit
             return service;
         }
 
+        protected virtual AccessoryServer PrepareServer(AccessoryServerOptions options)
+        {
+            var server = new AccessoryServer(options);
+            server.Accessories.Add(this);
+            return server;
+        }
+
         public async Task<AccessoryServer> PublishAsync(AccessoryServerOptions options, CancellationToken cancellationToken)
         {
             options.Name ??= m_Name;
             options.Category ??= m_Category;
 
-            var server = new AccessoryServer(options);
-            server.Accessories.Add(this);
-
+            var server = PrepareServer(options);
             await server.StartAsync(cancellationToken);
 
             return server;
@@ -54,7 +59,10 @@ namespace HomeKit
         {
             var service = new Service(ServiceType.AccessoryInformation);
             service.GetCharacteristic(CharacteristicType.Name)!.Value = m_Name;
-            service.GetCharacteristic(CharacteristicType.SerialNumber)!.Value = "SN-" + m_Name;
+            service.GetCharacteristic(CharacteristicType.SerialNumber)!.Value = m_Name + " SerialNumber";
+            service.GetCharacteristic(CharacteristicType.Manufacturer)!.Value = m_Name + " Manufacturer";
+            service.GetCharacteristic(CharacteristicType.Model)!.Value = m_Name + " Model";
+            service.GetCharacteristic(CharacteristicType.FirmwareRevision)!.Value = "1.0";
             //service.GetCharacteristic(CharacteristicType.Identify)!.Value = null;
 
             Services.Add(service);
