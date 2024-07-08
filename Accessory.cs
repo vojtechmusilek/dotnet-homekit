@@ -1,5 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
 using HomeKit.Resources;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -14,11 +16,10 @@ namespace HomeKit
         public int Aid { get; set; }
         public List<Service> Services { get; } = new();
 
-        [JsonIgnore] public AccessoryServer Server { get; }
         [JsonIgnore] public string Name { get; }
         [JsonIgnore] public Category Category { get; }
 
-        public Accessory(string name, AccessoryServer server, Category? category, ILoggerFactory? loggerFactory)
+        public Accessory(string name, Category? category, ILoggerFactory? loggerFactory)
         {
             Name = name;
 
@@ -28,10 +29,6 @@ namespace HomeKit
             m_LoggerFactory = loggerFactory;
             m_Logger = loggerFactory.CreateLogger($"Accessory<{name}>");
 
-            // todo notify server about this new accy
-            Server = server;
-            Server.Accessories.Add(this);
-
             AddAccessoryInformationService();
         }
 
@@ -40,6 +37,19 @@ namespace HomeKit
             var service = new Service(type);
             Services.Add(service);
             return service;
+        }
+
+        public async Task<AccessoryServer> PublishAsync(AccessoryServerOptions options, CancellationToken cancellationToken)
+        {
+            options.Name ??= Name;
+            options.Category ??= Category;
+
+            var server = new AccessoryServer(options);
+            server.Accessories.Add(this);
+
+            await server.StartAsync(cancellationToken);
+
+            return server;
         }
 
         private void AddAccessoryInformationService()

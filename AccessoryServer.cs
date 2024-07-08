@@ -26,6 +26,7 @@ namespace HomeKit
         private CancellationTokenSource m_StoppingToken = null!;
 
         private readonly HashSet<HapClient> m_Clients = new();
+        private readonly HashSet<Accessory> m_Accessories = new();
 
         private readonly IPAddress m_IpAddress;
         private readonly ushort m_Port;
@@ -36,23 +37,21 @@ namespace HomeKit
         private readonly ServerState m_State;
         private readonly string m_StateFilePath;
 
-        public HashSet<Accessory> Accessories { get; }
+        public HashSet<Accessory> Accessories => m_Accessories;
 
-        public AccessoryServer(string? ipAddress = null, ushort? port = null, string? pinCode = null, string? macAddress = null, string? stateDirectory = null, ILoggerFactory? loggerFactory = null)
+        public AccessoryServer(AccessoryServerOptions options)
         {
-            Accessories = new();
+            m_IpAddress = string.IsNullOrWhiteSpace(options.IpAddress) ? IPAddress.Any : IPAddress.Parse(options.IpAddress);
+            m_Port = options.Port ?? 23232;
 
-            m_IpAddress = string.IsNullOrWhiteSpace(ipAddress) ? IPAddress.Any : IPAddress.Parse(ipAddress);
-            m_Port = port ?? 23232;
-
-            m_PinCode = pinCode ?? Utils.GeneratePinCode();
-            m_MacAddress = macAddress ?? Utils.GenerateMacAddress();
+            m_PinCode = options.PinCode ?? Utils.GeneratePinCode();
+            m_MacAddress = options.MacAddress ?? Utils.GenerateMacAddress();
             m_SetupId = Utils.GenerateSetupId();
 
-            m_LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+            m_LoggerFactory = options.LoggerFactory ?? NullLoggerFactory.Instance;
             m_Logger = m_LoggerFactory.CreateLogger<AccessoryServer>();
 
-            var directoryPath = Path.GetDirectoryName(stateDirectory ?? AppDomain.CurrentDomain.BaseDirectory);
+            var directoryPath = Path.GetDirectoryName(options.StateDirectory ?? AppDomain.CurrentDomain.BaseDirectory);
             m_StateFilePath = Path.Join(directoryPath, $"server_state_{m_MacAddress.Replace(':', '_')}.json");
 
             m_State = ServerState.Load(m_StateFilePath);
@@ -120,6 +119,11 @@ namespace HomeKit
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
+            if (m_StoppingToken is not null)
+            {
+                throw new InvalidOperationException("Server already started");
+            }
+
             m_StoppingToken = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
             AssignIds();
@@ -314,14 +318,14 @@ namespace HomeKit
         {
             var firstAccessory = Accessories.First();
 
-            m_Logger.LogTrace("MacAddress: {MacAddress}", m_MacAddress);
             m_Logger.LogTrace("IpAddress: {IpAddress}", m_IpAddress);
             m_Logger.LogTrace("Port: {Port}", m_Port);
             m_Logger.LogTrace("PinCode: {PinCode}", m_PinCode);
+            m_Logger.LogTrace("MacAddress: {MacAddress}", m_MacAddress);
 
             var qrGenerator = new QRCodeGenerator();
             var uri = Utils.GenerateXhmUri(firstAccessory.Category, m_PinCode, m_SetupId);
-            var qrCodeData = qrGenerator.CreateQrCode(uri, QRCodeGenerator.ECCLevel.Q); // todo level
+            var qrCodeData = qrGenerator.CreateQrCode(uri, QRCodeGenerator.ECCLevel.M);
             var qrCode = new AsciiQRCode(qrCodeData);
             var qrCodeAsAsciiArt = qrCode.GetGraphic(1);
 
