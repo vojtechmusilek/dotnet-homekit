@@ -38,6 +38,8 @@ namespace HomeKit
         private readonly string m_StateFilePath;
 
         private readonly ushort m_MaxClients;
+        private readonly string m_Name;
+        private readonly Category m_Category;
 
         public HashSet<Accessory> Accessories => m_Accessories;
 
@@ -57,6 +59,8 @@ namespace HomeKit
             m_StateFilePath = Path.Join(directoryPath, $"server_state_{m_MacAddress.Replace(':', '_')}.json");
 
             m_MaxClients = options.MaxClients ?? ushort.MaxValue;
+            m_Name = options.Name ?? "DefaultAccessory";
+            m_Category = options.Category ?? Category.Other;
 
             m_State = ServerState.Load(m_StateFilePath);
         }
@@ -247,10 +251,8 @@ namespace HomeKit
             flags = Utils.SetBits(flags, Const.FlagsQueryOrResponsePosition, 1, 1);
             flags = Utils.SetBits(flags, Const.FlagsAuthoritativeAnswerPosition, 1, 1);
 
-            var firstAccessory = Accessories.First();
-
             var mac = m_MacAddress.Replace(":", "");
-            var identifier = firstAccessory.Name + "@" + mac + "." + Const.MdnsHapDomainName;
+            var identifier = m_Name + "@" + mac + "." + Const.MdnsHapDomainName;
             var host = mac + "." + Const.MdnsLocal;
 
             var responsePacket = new Packet()
@@ -307,9 +309,9 @@ namespace HomeKit
                             KeyValuePairs = new Dictionary<string, string>()
                             {
                                 /// 6.4
-                                { "md", firstAccessory.Name },
+                                { "md", m_Name },
                                 { "id", m_MacAddress },
-                                { "ci", firstAccessory.Category.GetHashCode().ToString() },
+                                { "ci", m_Category.GetHashCode().ToString() },
                                 { "sh", Utils.GenerateSetupHash(m_SetupId, m_MacAddress) },
 
                                 { "s#", IsPaired() ? "2" : "1" }, // todo state 1=unpaired 2=paired
@@ -330,15 +332,13 @@ namespace HomeKit
 
         private void PrintSetupMessage()
         {
-            var firstAccessory = Accessories.First();
-
             m_Logger.LogTrace("IpAddress: {IpAddress}", m_IpAddress);
             m_Logger.LogTrace("Port: {Port}", m_Port);
             m_Logger.LogTrace("PinCode: {PinCode}", m_PinCode);
             m_Logger.LogTrace("MacAddress: {MacAddress}", m_MacAddress);
 
             var qrGenerator = new QRCodeGenerator();
-            var uri = Utils.GenerateXhmUri(firstAccessory.Category, m_PinCode, m_SetupId);
+            var uri = Utils.GenerateXhmUri(m_Category, m_PinCode, m_SetupId);
             var qrCodeData = qrGenerator.CreateQrCode(uri, QRCodeGenerator.ECCLevel.M);
             var qrCode = new AsciiQRCode(qrCodeData);
             var qrCodeAsAsciiArt = qrCode.GetGraphic(1);

@@ -1,5 +1,4 @@
 ﻿using System.Collections.Generic;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using HomeKit.Resources;
@@ -13,17 +12,16 @@ namespace HomeKit
         private readonly ILoggerFactory m_LoggerFactory;
         private readonly ILogger m_Logger;
 
+        private readonly string m_Name;
+        private readonly Category m_Category;
+
         public int Aid { get; set; }
         public List<Service> Services { get; } = new();
 
-        [JsonIgnore] public string Name { get; }
-        [JsonIgnore] public Category Category { get; }
-
         public Accessory(string name, Category? category, ILoggerFactory? loggerFactory)
         {
-            Name = name;
-
-            Category = category ?? Category.Other;
+            m_Name = name;
+            m_Category = category ?? Category.Other;
 
             loggerFactory ??= new NullLoggerFactory();
             m_LoggerFactory = loggerFactory;
@@ -41,8 +39,8 @@ namespace HomeKit
 
         public async Task<AccessoryServer> PublishAsync(AccessoryServerOptions options, CancellationToken cancellationToken)
         {
-            options.Name ??= Name;
-            options.Category ??= Category;
+            options.Name ??= m_Name;
+            options.Category ??= m_Category;
 
             var server = new AccessoryServer(options);
             server.Accessories.Add(this);
@@ -55,8 +53,8 @@ namespace HomeKit
         private void AddAccessoryInformationService()
         {
             var service = new Service(ServiceType.AccessoryInformation);
-            service.GetCharacteristic(CharacteristicType.Name)!.Value = Name;
-            service.GetCharacteristic(CharacteristicType.SerialNumber)!.Value = "SN-" + Name;
+            service.GetCharacteristic(CharacteristicType.Name)!.Value = m_Name;
+            service.GetCharacteristic(CharacteristicType.SerialNumber)!.Value = "SN-" + m_Name;
             //service.GetCharacteristic(CharacteristicType.Identify)!.Value = null;
 
             Services.Add(service);
