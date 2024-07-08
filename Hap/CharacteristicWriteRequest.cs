@@ -11,26 +11,33 @@ namespace HomeKit.Hap
     /// 6.7.2.1
     internal readonly struct CharacteristicWrite
     {
+        private readonly object? m_Value;
+
         public readonly int Aid { get; init; }
         public readonly int Iid { get; init; }
-        public readonly JsonElement? Value { private get; init; }
+        public readonly object? Value { get => ValueGetter(); init => m_Value = value; }
         public readonly bool? Ev { get; init; }
 
-        public object? GetParsedValue()
+        private object? ValueGetter()
         {
-            if (Value is null)
+            if (m_Value is null)
             {
                 return null;
             }
 
-            return Value.Value.ValueKind switch
+            if (m_Value is JsonElement jsonElement)
             {
-                JsonValueKind.String => Value.Value.GetString(),
-                JsonValueKind.Number => Value.Value.GetDouble(),
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
-                _ => null,
-            };
+                return jsonElement.ValueKind switch
+                {
+                    JsonValueKind.String => jsonElement.GetString(),
+                    JsonValueKind.Number => jsonElement.GetDouble(),
+                    JsonValueKind.True => true,
+                    JsonValueKind.False => false,
+                    _ => null,
+                };
+            }
+
+            return m_Value;
         }
     }
 }

@@ -652,10 +652,10 @@ namespace HomeKit.Hap
                     continue;
                 }
 
-                var parsedValue = characteristicWrite.GetParsedValue();
-                if (parsedValue is not null)
+                var valueToSet = characteristicWrite.Value;
+                if (valueToSet is not null)
                 {
-                    characteristic.Value = parsedValue;
+                    characteristic.Value = valueToSet;
                 }
             }
 
