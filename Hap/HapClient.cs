@@ -652,11 +652,7 @@ namespace HomeKit.Hap
                     continue;
                 }
 
-                var valueToSet = characteristicWrite.Value;
-                if (valueToSet is not null)
-                {
-                    characteristic.Value = valueToSet;
-                }
+                characteristic.Value = characteristicWrite.Value;
             }
 
             return HttpWriter.WriteNoContent(tx);

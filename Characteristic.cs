@@ -27,42 +27,32 @@ namespace HomeKit
 
         private readonly CharacteristicDef m_Def;
 
+        private object? m_Value;
+
+        public delegate void ValueChange(Characteristic sender, object newValue);
+        public event ValueChange? OnValueChange;
+
         public string Type { get; }
         public int Iid { get; set; }
-        public object? Value { get; set; }
-        public List<string> Perms => m_Def.Permissions;
         public string Format => m_Def.Format;
+        public List<string> Perms => m_Def.Permissions;
+        public object? Value { get => m_Value; set => ValueSetter(value); }
 
         public Characteristic(CharacteristicType type)
         {
             m_Def = m_Characteristics[type];
-
             Type = Utils.GetHapType(m_Def.Uuid);
+        }
 
-            if (m_Def.Format == "string")
+        private void ValueSetter(object? newValue)
+        {
+            if (m_Value == newValue || newValue is null)
             {
-                Value = string.Empty;
+                return;
             }
 
-            //if (m_Def.Format == "bool")
-            //{
-            //    Value = false;
-            //}
-
-            //if (m_Def.ValidValues is not null)
-            //{
-            //    Value = m_Def.ValidValues.First().Value;
-            //}
-
-            //if (m_Def.MinValue is not null)
-            //{
-            //    Value = m_Def.MinValue.Value;
-            //}
-
-            //if (Value is null)
-            //{
-            //    throw new NotImplementedException();
-            //}
+            m_Value = newValue;
+            OnValueChange?.Invoke(this, newValue);
         }
 
         public bool IsType(CharacteristicType type)

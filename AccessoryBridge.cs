@@ -1,17 +1,11 @@
 ﻿using System.Collections.Generic;
 using HomeKit.Resources;
-using Microsoft.Extensions.Logging;
 
 namespace HomeKit
 {
-    public class AccessoryBridge : Accessory
+    public class AccessoryBridge(string name) : Accessory(name, Category.Bridge)
     {
         public HashSet<Accessory> Accessories { get; } = new();
-
-        public AccessoryBridge(string name, ILoggerFactory? loggerFactory)
-        : base(name, Category.Bridge, loggerFactory)
-        {
-        }
 
         protected override AccessoryServer PrepareServer(AccessoryServerOptions options)
         {

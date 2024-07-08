@@ -6,7 +6,7 @@
 - [x] hap pairing, publishing
 - [x] state persistence
 - [x] accessory bridge
-- [ ] value change events
+- [x] value change events
 - [ ] test accessories
 - [ ] accessory classes generation
 

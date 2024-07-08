@@ -2,30 +2,21 @@
 using System.Threading;
 using System.Threading.Tasks;
 using HomeKit.Resources;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HomeKit
 {
     public class Accessory
     {
-        private readonly ILoggerFactory m_LoggerFactory;
-        private readonly ILogger m_Logger;
-
         private readonly string m_Name;
         private readonly Category m_Category;
 
         public int Aid { get; set; }
         public List<Service> Services { get; } = new();
 
-        public Accessory(string name, Category? category, ILoggerFactory? loggerFactory)
+        public Accessory(string name, Category category = Category.Other)
         {
             m_Name = name;
-            m_Category = category ?? Category.Other;
-
-            loggerFactory ??= new NullLoggerFactory();
-            m_LoggerFactory = loggerFactory;
-            m_Logger = loggerFactory.CreateLogger($"Accessory<{name}>");
+            m_Category = category;
 
             AddAccessoryInformationService();
         }
@@ -63,10 +54,7 @@ namespace HomeKit
             service.GetCharacteristic(CharacteristicType.Manufacturer)!.Value = m_Name + " Manufacturer";
             service.GetCharacteristic(CharacteristicType.Model)!.Value = m_Name + " Model";
             service.GetCharacteristic(CharacteristicType.FirmwareRevision)!.Value = "1.0";
-            //service.GetCharacteristic(CharacteristicType.Identify)!.Value = null;
-
             Services.Add(service);
         }
-
     }
 }
