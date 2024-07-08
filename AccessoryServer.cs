@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using HomeKit.Hap;
@@ -18,12 +19,10 @@ namespace HomeKit
 {
     public class AccessoryServer
     {
+        private static readonly QRCodeGenerator m_QRCodeGenerator = new();
+
         private readonly ILoggerFactory m_LoggerFactory;
         private readonly ILogger m_Logger;
-
-        private MdnsClient? m_MdnsClient = null!;
-        private Task? m_ClientReceiverTask;
-        private CancellationTokenSource m_StoppingToken = null!;
 
         private readonly HashSet<HapClient> m_Clients = new();
         private readonly HashSet<Accessory> m_Accessories = new();
@@ -37,11 +36,18 @@ namespace HomeKit
         private readonly ServerState m_State;
         private readonly string m_StateFilePath;
 
-        private readonly ushort m_MaxClients;
         private readonly string m_Name;
         private readonly Category m_Category;
+        private readonly ushort m_MaxClients;
+
+        private MdnsClient? m_MdnsClient = null!;
+        private Task? m_ClientReceiverTask;
+        private CancellationTokenSource m_StoppingToken = null!;
 
         public HashSet<Accessory> Accessories => m_Accessories;
+
+        [JsonIgnore]
+        public bool Discoverable { get; set; } = true;
 
         public AccessoryServer(AccessoryServerOptions options)
         {
@@ -313,10 +319,9 @@ namespace HomeKit
                                 { "id", m_MacAddress },
                                 { "ci", m_Category.GetHashCode().ToString() },
                                 { "sh", Utils.GenerateSetupHash(m_SetupId, m_MacAddress) },
+                                { "s#", IsPaired() ? "2" : "1" },
+                                { "sf", Discoverable ? "1" : "0" },
 
-                                { "s#", IsPaired() ? "2" : "1" }, // todo state 1=unpaired 2=paired
-                                { "sf", IsPaired() ? "0" : "1" }, // todo status 0=hidden 1=discoverable
-                        
                                 { "c#", "2" }, // todo config num, increment when accessory changes
                                 
                                 { "pv", "1.1" },
@@ -332,18 +337,26 @@ namespace HomeKit
 
         private void PrintSetupMessage()
         {
-            m_Logger.LogTrace("IpAddress: {IpAddress}", m_IpAddress);
-            m_Logger.LogTrace("Port: {Port}", m_Port);
-            m_Logger.LogTrace("PinCode: {PinCode}", m_PinCode);
-            m_Logger.LogTrace("MacAddress: {MacAddress}", m_MacAddress);
-
-            var qrGenerator = new QRCodeGenerator();
             var uri = Utils.GenerateXhmUri(m_Category, m_PinCode, m_SetupId);
-            var qrCodeData = qrGenerator.CreateQrCode(uri, QRCodeGenerator.ECCLevel.M);
-            var qrCode = new AsciiQRCode(qrCodeData);
-            var qrCodeAsAsciiArt = qrCode.GetGraphic(1);
+            var data = m_QRCodeGenerator.CreateQrCode(uri, QRCodeGenerator.ECCLevel.M);
+            var qrCode = new AsciiQRCode(data).GetGraphic(1);
 
-            m_Logger.LogInformation("{QrCode}", qrCodeAsAsciiArt);
+            if (m_LoggerFactory is NullLoggerFactory)
+            {
+                Console.WriteLine($"Accessory: {m_Name} ({m_Category})");
+                Console.WriteLine($"Host: {m_IpAddress}:{m_Port}");
+                Console.WriteLine($"MacAddress: {m_MacAddress}");
+                Console.WriteLine($"PinCode: {m_PinCode}");
+                Console.WriteLine(qrCode);
+            }
+            else
+            {
+                m_Logger.LogInformation("Accessory: {Name} ({Category})", m_Name, m_Category);
+                m_Logger.LogInformation("Host: {IpAddress}:{Port}", m_IpAddress, m_Port);
+                m_Logger.LogInformation("MacAddress: {MacAddress}", m_MacAddress);
+                m_Logger.LogInformation("PinCode: {PinCode}", m_PinCode);
+                m_Logger.LogInformation("{QrCode}", qrCode);
+            }
         }
     }
 }
