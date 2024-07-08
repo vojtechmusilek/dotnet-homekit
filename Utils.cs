@@ -109,10 +109,6 @@ namespace HomeKit
                 if (!ni.SupportsMulticast) return false;
                 if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) return false;
                 if (ni.OperationalStatus != OperationalStatus.Up) return false;
-
-                // todo check for index?
-                var props = ni.GetIPProperties().GetIPv4Properties();
-
                 return true;
             }).ToArray();
         }
@@ -206,7 +202,7 @@ namespace HomeKit
 
         public static Guid ReadUtf8Identifier(ReadOnlySpan<byte> identifier)
         {
-            if (Utf8Parser.TryParse(identifier, out Guid guid, out int bytesConsumed))
+            if (Utf8Parser.TryParse(identifier, out Guid guid, out _))
             {
                 return guid;
             }

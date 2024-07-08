@@ -37,6 +37,8 @@ namespace HomeKit
         private readonly ServerState m_State;
         private readonly string m_StateFilePath;
 
+        private readonly ushort m_MaxClients;
+
         public HashSet<Accessory> Accessories => m_Accessories;
 
         public AccessoryServer(AccessoryServerOptions options)
@@ -54,6 +56,8 @@ namespace HomeKit
             var directoryPath = Path.GetDirectoryName(options.StateDirectory ?? AppDomain.CurrentDomain.BaseDirectory);
             m_StateFilePath = Path.Join(directoryPath, $"server_state_{m_MacAddress.Replace(':', '_')}.json");
 
+            m_MaxClients = options.MaxClients ?? ushort.MaxValue;
+
             m_State = ServerState.Load(m_StateFilePath);
         }
 
@@ -67,8 +71,18 @@ namespace HomeKit
             return CollectionsMarshal.AsSpan(m_State.PairedClients);
         }
 
+        public bool AcceptsClients()
+        {
+            return m_State.PairedClients.Count < m_MaxClients;
+        }
+
         public void AddPairedClient(PairedClient pairedClient)
         {
+            if (!AcceptsClients())
+            {
+                throw new InvalidOperationException("Client capacity reached");
+            }
+
             m_State.PairedClients.Add(pairedClient);
             m_State.Save(m_StateFilePath);
         }
@@ -133,7 +147,7 @@ namespace HomeKit
             await SetupMdns(m_StoppingToken.Token);
         }
 
-        public async Task StopAsync(CancellationToken cancellationToken)
+        public async Task StopAsync()
         {
             await m_StoppingToken.CancelAsync();
 

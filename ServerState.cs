@@ -39,7 +39,7 @@ namespace HomeKit
 
         public void Save(string filePath)
         {
-            using var fileStream = File.OpenWrite(filePath);
+            using var fileStream = File.Create(filePath);
             JsonSerializer.Serialize(fileStream, this, m_JsonOptions);
         }
     }

@@ -12,6 +12,7 @@ namespace HomeKit
         public string? PinCode;
         public string? MacAddress;
         public string? StateDirectory;
+        public ushort? MaxClients;
         public ILoggerFactory? LoggerFactory;
     }
 }

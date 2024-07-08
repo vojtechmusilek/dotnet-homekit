@@ -27,6 +27,7 @@ namespace HomeKit.Hap
         private readonly Srp6aServer m_SrpServer = new();
         private readonly HapAead m_Aead;
 
+
         private readonly byte[] m_ReadBuffer = new byte[1024];
         private readonly byte[] m_WriteBuffer = new byte[4096];
 
@@ -35,6 +36,8 @@ namespace HomeKit.Hap
         private readonly byte[] m_SharedSecret = new byte[32];
 
         private readonly string m_RemoteIp;
+
+        private PairedClient? m_PairedClient;
 
         private Task m_ReceiverTask = null!;
         private CancellationTokenSource m_StoppingToken = null!;
@@ -92,7 +95,7 @@ namespace HomeKit.Hap
                     }
 
                     m_Logger.LogTrace("TCP Tx {length}", responseLength);
-                    await m_TcpStream.WriteAsync(m_WriteBuffer.AsMemory(0, responseLength), stoppingToken);
+                    await m_TcpStream.WriteAsync(m_WriteBuffer.AsMemory(0, responseLength), CancellationToken.None);
                 }
                 catch (Exception ex)
                 {
@@ -116,7 +119,7 @@ namespace HomeKit.Hap
 
             var method = where[0];
             var path = where[1];
-            var version = where[2];
+            //var version = where[2];
 
             var query = string.Empty;
             if (path.Contains('?'))
@@ -129,18 +132,18 @@ namespace HomeKit.Hap
                 }
             }
 
-            var host = string.Empty;
+            //var host = string.Empty;
+            //var contentType = string.Empty;
             var contentLength = 0;
-            var contentType = string.Empty;
 
             for (int i = 1; i < plainHeaders.Length; i++)
             {
                 var split = plainHeaders[i].Split(": ", 2);
                 if (split.Length == 2)
                 {
-                    if (split[0] == "Host") host = split[1];
+                    //if (split[0] == "Host") host = split[1];
+                    //if (split[0] == "Content-Type") contentType = split[1];
                     if (split[0] == "Content-Length") contentLength = int.Parse(split[1]);
-                    if (split[0] == "Content-Type") contentType = split[1];
                 }
             }
 
@@ -159,8 +162,8 @@ namespace HomeKit.Hap
                 ("POST", "/pair-setup") => PairSetup(rx, tx),
                 ("POST", "/pair-verify") => PairVerify(rx, tx),
                 ("POST", "/pairings") => Pairings(rx, tx),
-                ("GET", "/accessories") => GetAccessories(rx, tx),
-                ("GET", "/characteristics") => GetCharacteristics(rx, tx, query),
+                ("GET", "/accessories") => GetAccessories(tx),
+                ("GET", "/characteristics") => GetCharacteristics(tx, query),
                 ("PUT", "/characteristics") => PutCharacteristics(rx, tx),
                 _ => throw new NotImplementedException($"Method {method}, {path}, {query}"),
             };
@@ -196,15 +199,13 @@ namespace HomeKit.Hap
             }
 
             /// 5.6.2 - 2
-            // todo max tries
-            var maxt = false;
-            if (maxt)
+            var maxTries = false;
+            if (maxTries)
             {
                 return WriteError(tx, TlvError.MaxTries, 2);
             }
 
             /// 5.6.2 - 3
-            // todo busy
             var busy = false;
             if (busy)
             {
@@ -278,7 +279,7 @@ namespace HomeKit.Hap
             );
             if (!decrypted)
             {
-
+                return WriteError(tx, TlvError.Authentication, 6);
             }
 
             /// 5.6.6.1 - 3
@@ -304,18 +305,24 @@ namespace HomeKit.Hap
             var valid = Signer.Validate(signature, iosDeviceInfo, iosDeviceLtPk);
             if (!valid)
             {
-                // todo handle
+                return WriteError(tx, TlvError.Authentication, 6);
             }
 
             /// 5.6.6.1 - 6
-            var guid = Utils.ReadUtf8Identifier(iosDevicePairingId);
+            var id = Utils.ReadUtf8Identifier(iosDevicePairingId);
+            if (!m_AccessoryServer.AcceptsClients())
+            {
+                return WriteError(tx, TlvError.MaxPeers, 6);
+            }
 
             m_AccessoryServer.AddPairedClient(new PairedClient()
             {
-                Id = guid,
+                Id = id,
                 ClientLtPk = iosDeviceLtPk.ToArray(),
                 ClientPermissions = 1
             });
+
+            m_Logger.LogInformation("Pairing added {id}", id);
 
             /// M6 Response Generation
 
@@ -358,6 +365,8 @@ namespace HomeKit.Hap
             var contentPosition = 0;
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.State, 6);
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.EncryptedData, encryptedDataWithTag_tx);
+
+            m_Logger.LogInformation("Pairing setup complete {id}", id);
 
             return WritePairingContent(tx, content);
         }
@@ -472,6 +481,9 @@ namespace HomeKit.Hap
 
             /// 5.7.4 - 5
             m_Aead.Enable(m_SharedSecret);
+            m_PairedClient = pairedClient;
+
+            m_Logger.LogInformation("Pairing verified {id}", iosDevicePairingGuid);
 
             return WritePairingState(tx, 4);
         }
@@ -497,15 +509,15 @@ namespace HomeKit.Hap
         {
             m_Logger.LogInformation("Add pairing");
 
-            /// 5.10.2 - 1
-            // todo
-
-            /// 5.10.2 - 2
-            // todo
+            /// 5.10.2 - 1, 2
+            if (m_PairedClient is null || m_PairedClient.ClientPermissions != 1)
+            {
+                return WriteError(tx, TlvError.Authentication, 2);
+            }
 
             /// 5.10.2 - 3, 4
             Span<byte> additionalControllerPairingIdentifier = stackalloc byte[36];
-            var acpi = TlvReader.ReadValue(TlvType.Identifier, rx, additionalControllerPairingIdentifier);
+            TlvReader.ReadValue(TlvType.Identifier, rx, additionalControllerPairingIdentifier);
 
             Span<byte> additionalControllerLtPk = stackalloc byte[32];
             TlvReader.ReadValue(TlvType.PublicKey, rx, additionalControllerLtPk);
@@ -530,7 +542,10 @@ namespace HomeKit.Hap
             }
             else
             {
-                // todo check kTLVError_MaxPeers
+                if (!m_AccessoryServer.AcceptsClients())
+                {
+                    return WriteError(tx, TlvError.MaxPeers, 2);
+                }
 
                 m_AccessoryServer.AddPairedClient(new PairedClient()
                 {
@@ -550,49 +565,45 @@ namespace HomeKit.Hap
         {
             m_Logger.LogInformation("Remove pairing");
 
-            /// 5.11.2 - 1
-            // todo
-
-            /// 5.11.2 - 2
-            // todo
+            /// 5.11.2 - 1, 2
+            if (m_PairedClient is null || m_PairedClient.ClientPermissions != 1)
+            {
+                return WriteError(tx, TlvError.Authentication, 2);
+            }
 
             /// 5.11.2 - 3
             Span<byte> removedControllerPairingIdentifier = stackalloc byte[36];
-            var acpi = TlvReader.ReadValue(TlvType.Identifier, rx, removedControllerPairingIdentifier);
+            TlvReader.ReadValue(TlvType.Identifier, rx, removedControllerPairingIdentifier);
             var id = Utils.ReadUtf8Identifier(removedControllerPairingIdentifier);
 
             m_AccessoryServer.RemovePairedClient(id);
             m_Logger.LogInformation("Removed {id}", id);
 
-            /// 5.11.2 - 4
+            /// 5.11.2 - 6, 7
+            if (m_PairedClient.Id == id)
+            {
+                m_StoppingToken.Cancel();
+            }
+
+            /// 5.11.2 - 4, 5
             return WritePairingState(tx, 2);
-
-            /// 5.11.2 - 5
-            // todo
-
-            /// 5.11.2 - 6
-            // todo
-
-            /// 5.11.2 - 7
-            // todo
         }
 
         private int ListPairings(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
             m_Logger.LogInformation("List pairings");
 
-            /// 5.12.2 - 1
-            // todo
-
-            /// 5.12.2 - 2
-            // todo
+            /// 5.12.2 - 1, 2
+            if (m_PairedClient is null || m_PairedClient.ClientPermissions != 1)
+            {
+                return WriteError(tx, TlvError.Authentication, 2);
+            }
 
             /// 5.12.2 - 3
             var pairedClients = m_AccessoryServer.GetPairedClients();
             Span<byte> content = stackalloc byte[3 + ((75 + 2) * pairedClients.Length)];
-            var contentPosition = 0;
 
-            // 3
+            var contentPosition = 0;
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.State, 2);
 
             Span<byte> additionalIdentifier = stackalloc byte[36];
@@ -613,7 +624,7 @@ namespace HomeKit.Hap
             return WriteHapContent(tx, content[..^2]);
         }
 
-        private int GetAccessories(ReadOnlySpan<byte> rx, Span<byte> tx)
+        private int GetAccessories(Span<byte> tx)
         {
             var json = JsonSerializer.Serialize(m_AccessoryServer, Utils.HapJsonOptions);
             var jsonbytes = Encoding.UTF8.GetBytes(json);
@@ -651,7 +662,7 @@ namespace HomeKit.Hap
             return HttpWriter.WriteNoContent(tx);
         }
 
-        private int GetCharacteristics(ReadOnlySpan<byte> rx, Span<byte> tx, string query)
+        private int GetCharacteristics(Span<byte> tx, string query)
         {
             /// 6.7.4.2
             var queries = query.Split('&');
