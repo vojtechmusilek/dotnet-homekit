@@ -7,8 +7,11 @@
 - [x] state persistence
 - [x] accessory bridge
 - [x] value change events
+- [ ] send event on value change to notify ios device
+- [ ] typed service, characteristic generation
+- [ ] handle rare error cases
+- [ ] create examples
 - [ ] test accessories
-- [ ] accessory classes generation
 
 ### current usage
 

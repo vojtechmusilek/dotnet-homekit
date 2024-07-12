@@ -83,6 +83,7 @@ namespace HomeKit.Hap
 
                 if (requestLength == m_ReadBuffer.Length)
                 {
+                    // todo handle by allocating more memory
                     throw new NotImplementedException("Read buffer overflow");
                 }
 
@@ -113,6 +114,7 @@ namespace HomeKit.Hap
 
             m_Logger.LogDebug("REQ:\n{data}", Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, rxLength)));
 
+            // todo cleanup
             var plain = Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, rxLength));
             var plainHeaders = plain.Split(Environment.NewLine);
             var where = plainHeaders[0].Split(' ');
@@ -626,6 +628,7 @@ namespace HomeKit.Hap
 
         private int GetAccessories(Span<byte> tx)
         {
+            // todo write straight to tx
             var json = JsonSerializer.Serialize(m_AccessoryServer, Utils.HapJsonOptions);
             var jsonbytes = Encoding.UTF8.GetBytes(json);
 
@@ -646,13 +649,16 @@ namespace HomeKit.Hap
                     throw new NotImplementedException();
                 }
 
-                if (characteristicWrite.Ev.HasValue)
+                if (characteristicWrite.Ev is not null)
                 {
                     // todo handle
                     continue;
                 }
 
-                characteristic.Value = characteristicWrite.Value;
+                if (characteristicWrite.Value is not null)
+                {
+                    characteristic.Value = characteristicWrite.Value;
+                }
             }
 
             return HttpWriter.WriteNoContent(tx);
@@ -683,6 +689,7 @@ namespace HomeKit.Hap
                     var characteristic = m_AccessoryServer.GetCharacteristic(aid, iid);
                     if (characteristic is null)
                     {
+                        // todo hangle error
                         throw new NotImplementedException();
 
                         //characteristics[i] = new CharacteristicRead()
@@ -714,10 +721,6 @@ namespace HomeKit.Hap
 
             return WriteHapContent(tx, jsonbytes);
         }
-
-
-
-
 
         private static int WriteError(Span<byte> httpBuffer, TlvError error, byte state)
         {
@@ -753,7 +756,6 @@ namespace HomeKit.Hap
             httpLength += HttpWriter.WriteContent(httpBuffer[httpLength..], content[..content.Length]);
             return httpLength;
         }
-
 
     }
 }

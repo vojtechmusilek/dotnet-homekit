@@ -133,7 +133,7 @@ namespace HomeKit
             return m_MacAddress;
         }
 
-        public Characteristic? GetCharacteristic(int aid, int iid)
+        public ICharacteristic? GetCharacteristic(int aid, int iid)
         {
             return Accessories
                 .FirstOrDefault(acc => acc.Aid == aid)?.Services
@@ -322,6 +322,7 @@ namespace HomeKit
                                 { "s#", IsPaired() ? "2" : "1" },
                                 { "sf", Discoverable ? "1" : "0" },
 
+                                // todo store config hash in state for checking
                                 { "c#", "2" }, // todo config num, increment when accessory changes
                                 
                                 { "pv", "1.1" },

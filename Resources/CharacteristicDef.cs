@@ -3,12 +3,12 @@ using System.Collections.Generic;
 
 namespace HomeKit.Resources
 {
-    internal record CharacteristicDef
+    public record CharacteristicDef
     {
         public required CharacteristicType Type { get; init; }
         public required Guid Uuid { get; init; }
         public required string Format { get; init; }
-        public required List<string> Permissions { get; init; }
+        public required string[] Permissions { get; init; }
 
         public Dictionary<string, int>? ValidValues { get; init; }
         public Dictionary<string, string>? ValidBits { get; init; }
