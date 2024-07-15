@@ -41,8 +41,8 @@ namespace HomeKit.Hap
         private Task m_ReceiverTask = null!;
         private CancellationTokenSource m_StoppingToken = null!;
 
-        private bool m_EventSendingActive;
         private readonly HashSet<Characteristic> m_SubscribedCharacteristics = new();
+        private int? m_EventBlockHashCode;
 
         public HapClient(AccessoryServer server, TcpClient tcpClient, ILogger<HapClient> logger)
         {
@@ -55,7 +55,7 @@ namespace HomeKit.Hap
 
             m_Aead = new(logger);
 
-            m_RemoteIp = m_Socket.RemoteEndPoint?.ToString() ?? "uknown";
+            m_RemoteIp = m_Socket.RemoteEndPoint?.ToString() ?? "unknown";
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -85,7 +85,7 @@ namespace HomeKit.Hap
 
                 if (requestLength == m_ReadBuffer.Length)
                 {
-                    // todo handle by allocating more memory
+                    // todo handle - Array.Resize
                     throw new NotImplementedException("Read buffer overflow");
                 }
 
@@ -94,7 +94,7 @@ namespace HomeKit.Hap
                     int responseLength = ProcessRequest(requestLength);
                     if (responseLength == 0)
                     {
-                        break;
+                        throw new Exception("Response length 0");
                     }
 
                     m_Logger.LogTrace("TCP Tx {length}", responseLength);
@@ -684,9 +684,9 @@ namespace HomeKit.Hap
                 if (characteristicWrite.Value is not null)
                 {
                     // todo find better way
-                    m_EventSendingActive = false;
+                    m_EventBlockHashCode = characteristic.GetHashCode();
                     characteristic.Value = characteristicWrite.Value;
-                    m_EventSendingActive = true;
+                    m_EventBlockHashCode = null;
                 }
             }
 
@@ -695,8 +695,15 @@ namespace HomeKit.Hap
 
         private void OnSubscriptionValueChange(Characteristic sender, object newValue)
         {
-            if (!m_EventSendingActive)
+            if (m_EventBlockHashCode == sender.GetHashCode())
             {
+                m_Logger.LogTrace("Event skipped for {aid}.{iid}", sender.Aid, sender.Iid);
+                return;
+            }
+
+            if (!m_TcpStream.CanWrite)
+            {
+                m_Logger.LogError("Cannot write event for {aid}.{iid}", sender.Aid, sender.Iid);
                 return;
             }
 
@@ -726,8 +733,8 @@ namespace HomeKit.Hap
 
             length = m_Aead.Encrypt(buffer[..length], buffer);
 
-            m_Logger.LogTrace("TCP Tx {length} (EVENT)", length);
             m_TcpStream.Write(buffer[..length]);
+            m_Logger.LogTrace("TCP Tx {length} (EVENT)", length);
         }
 
         private int GetCharacteristics(Span<byte> tx, string query)
