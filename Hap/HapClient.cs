@@ -20,16 +20,15 @@ namespace HomeKit.Hap
         private readonly ILogger m_Logger;
         private readonly Socket m_Socket;
         private readonly NetworkStream m_TcpStream;
-
-        private readonly AccessoryServer m_AccessoryServer;
         private readonly TcpClient m_TcpClient;
 
+        private readonly AccessoryServer m_AccessoryServer;
         private readonly Srp6aServer m_SrpServer = new();
         private readonly HapAead m_Aead;
 
-
         private readonly byte[] m_ReadBuffer = new byte[1024];
         private readonly byte[] m_WriteBuffer = new byte[4096];
+        private readonly byte[] m_EventBuffer = new byte[1024];
 
         private readonly byte[] m_AccessoryCurvePk = new byte[32];
         private readonly byte[] m_IosDeviceCurvePk = new byte[32];
@@ -41,6 +40,9 @@ namespace HomeKit.Hap
 
         private Task m_ReceiverTask = null!;
         private CancellationTokenSource m_StoppingToken = null!;
+
+        private bool m_EventSendingActive;
+        private readonly HashSet<Characteristic> m_SubscribedCharacteristics = new();
 
         public HapClient(AccessoryServer server, TcpClient tcpClient, ILogger<HapClient> logger)
         {
@@ -104,8 +106,15 @@ namespace HomeKit.Hap
                 }
             }
 
-            m_Logger.LogInformation("Closing HAP client {remote}", m_Socket.RemoteEndPoint);
+            m_Logger.LogWarning("Closing HAP client {remote}", m_Socket.RemoteEndPoint);
             m_TcpClient.Close();
+
+            foreach (var characteristic in m_SubscribedCharacteristics)
+            {
+                characteristic.OnValueChange -= OnSubscriptionValueChange;
+            }
+
+            m_AccessoryServer.RemoveClientReceiver(this);
         }
 
         private int ProcessRequest(int rxLength)
@@ -628,11 +637,9 @@ namespace HomeKit.Hap
 
         private int GetAccessories(Span<byte> tx)
         {
-            // todo write straight to tx
             var json = JsonSerializer.Serialize(m_AccessoryServer, Utils.HapJsonOptions);
-            var jsonbytes = Encoding.UTF8.GetBytes(json);
-
-            return WriteHapContent(tx, jsonbytes);
+            var jsonBytes = Encoding.UTF8.GetBytes(json);
+            return WriteHapContent(tx, jsonBytes);
         }
 
         private int PutCharacteristics(ReadOnlySpan<byte> rx, Span<byte> tx)
@@ -651,17 +658,76 @@ namespace HomeKit.Hap
 
                 if (characteristicWrite.Ev is not null)
                 {
-                    // todo handle
+                    if (characteristic is Characteristic typed)
+                    {
+                        if (characteristicWrite.Ev.Value)
+                        {
+                            typed.OnValueChange += OnSubscriptionValueChange;
+                            m_SubscribedCharacteristics.Add(typed);
+                            m_Logger.LogTrace("Subscription added {sub}", characteristicWrite);
+                        }
+                        else
+                        {
+                            typed.OnValueChange -= OnSubscriptionValueChange;
+                            m_SubscribedCharacteristics.Remove(typed);
+                            m_Logger.LogTrace("Subscription removed {sub}", characteristicWrite);
+                        }
+                    }
+                    else
+                    {
+                        // todo handle
+                    }
+
                     continue;
                 }
 
                 if (characteristicWrite.Value is not null)
                 {
+                    // todo find better way
+                    m_EventSendingActive = false;
                     characteristic.Value = characteristicWrite.Value;
+                    m_EventSendingActive = true;
                 }
             }
 
             return HttpWriter.WriteNoContent(tx);
+        }
+
+        private void OnSubscriptionValueChange(Characteristic sender, object newValue)
+        {
+            if (!m_EventSendingActive)
+            {
+                return;
+            }
+
+            var response = new CharacteristicReadResponse()
+            {
+                Characteristics = new CharacteristicRead[]
+                {
+                    new()
+                    {
+                        Aid = sender.Aid,
+                        Iid = sender.Iid,
+                        Value = newValue,
+                    }
+                }
+            };
+
+            var json = JsonSerializer.Serialize(response, Utils.HapJsonOptions);
+            var jsonbytes = Encoding.UTF8.GetBytes(json);
+
+            var buffer = m_EventBuffer.AsSpan();
+
+            var length = 0;
+            length += HttpWriter.WriteHapEvent(buffer[length..]);
+            length += HttpWriter.WriteContent(buffer[length..], jsonbytes);
+
+            m_Logger.LogDebug("EVENT:\n{data}", Encoding.UTF8.GetString(buffer[..length]));
+
+            length = m_Aead.Encrypt(buffer[..length], buffer);
+
+            m_Logger.LogTrace("TCP Tx {length} (EVENT)", length);
+            m_TcpStream.Write(buffer[..length]);
         }
 
         private int GetCharacteristics(Span<byte> tx, string query)

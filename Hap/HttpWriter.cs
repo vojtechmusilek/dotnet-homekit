@@ -21,6 +21,14 @@ namespace HomeKit.Hap
             return position;
         }
 
+        public static int WriteHapEvent(Span<byte> buffer)
+        {
+            int position = 0;
+            position += Encoding.UTF8.GetBytes("EVENT/1.0 200 OK\r\n", buffer[position..]);
+            position += Encoding.UTF8.GetBytes($"Content-Type: application/hap+json\r\n", buffer[position..^0]);
+            return position;
+        }
+
         public static int WriteContent(Span<byte> buffer, ReadOnlySpan<byte> content)
         {
             int position = 0;

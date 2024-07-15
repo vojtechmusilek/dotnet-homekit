@@ -3,13 +3,13 @@
 namespace HomeKit.Hap
 {
     /// 6.7.2
-    internal readonly struct CharacteristicWriteRequest
+    internal readonly record struct CharacteristicWriteRequest
     {
         public readonly CharacteristicWrite[] Characteristics { get; init; }
     }
 
     /// 6.7.2.1
-    internal readonly struct CharacteristicWrite
+    internal readonly record struct CharacteristicWrite
     {
         private readonly object? m_Value;
 

@@ -185,6 +185,7 @@ namespace HomeKit
                     foreach (var characteristic in service.Characteristics)
                     {
                         characteristic.Iid = iid++;
+                        characteristic.Aid = accessory.Aid;
                     }
                 }
             }
@@ -231,6 +232,11 @@ namespace HomeKit
 
                 await hapClient.StartAsync(stoppingToken);
             }
+        }
+
+        internal void RemoveClientReceiver(HapClient client)
+        {
+            m_Clients.Remove(client);
         }
 
         private void MdnsClient_OnPacketReceived(Packet packet)

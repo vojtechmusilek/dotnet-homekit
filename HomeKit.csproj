@@ -9,7 +9,6 @@
   <ItemGroup>
     <None Remove=".git" />
     <None Remove=".gitignore" />
-    <None Remove="README.md" />
   </ItemGroup>
 
   <ItemGroup>

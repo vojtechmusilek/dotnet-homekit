@@ -1,4 +1,5 @@
-﻿using HomeKit.Resources;
+﻿using System;
+using HomeKit.Resources;
 
 namespace HomeKit
 {
@@ -12,10 +13,12 @@ namespace HomeKit
         public delegate void ValueChange(Characteristic sender, object newValue);
         public event ValueChange? OnValueChange;
 
-        public string Type { get; }
+        public int Aid { get; set; }
         public int Iid { get; set; }
+        public string Type { get; }
         public string Format => m_Def.Format;
         public string[] Perms => m_Def.Permissions;
+        // todo nullable
         public object? Value { get => m_Value; set => ValueSetter(value); }
 
         public Characteristic(CharacteristicType type)
@@ -27,6 +30,12 @@ namespace HomeKit
 
         private void ValueSetter(object? newValue)
         {
+            /// because ios device can send 1/0 instead of bool
+            if (m_Def.Format == "bool")
+            {
+                newValue = Convert.ToBoolean(newValue);
+            }
+
             if (m_Value == newValue || newValue is null)
             {
                 return;
