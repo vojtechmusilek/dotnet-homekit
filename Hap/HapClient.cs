@@ -460,6 +460,7 @@ namespace HomeKit.Hap
 
             if (!decrypted)
             {
+                m_Logger.LogError("Failed to decrypt data");
                 return WriteError(tx, TlvError.Authentication, 4);
             }
 
@@ -472,6 +473,7 @@ namespace HomeKit.Hap
             var pairedClient = m_AccessoryServer.GetPairedClient(iosDevicePairingGuid);
             if (pairedClient is null)
             {
+                m_Logger.LogError("Paired client {ClientGuid} was not found", iosDevicePairingGuid);
                 return WriteError(tx, TlvError.Authentication, 4);
             }
 
@@ -487,6 +489,7 @@ namespace HomeKit.Hap
             bool valid = Signer.Validate(iosDeviceSignature, iosDeviceInfo, pairedClient.ClientLtPk);
             if (!valid)
             {
+                m_Logger.LogError("Failed to validate signature");
                 return WriteError(tx, TlvError.Authentication, 4);
             }
 

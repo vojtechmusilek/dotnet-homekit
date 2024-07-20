@@ -22,15 +22,15 @@ namespace HomeKit.Mdns
         private Task m_ReceiverTask = null!;
         private Task m_BroadcasterTask = null!;
 
-        private readonly PeriodicTimer m_BroadcasterTimer = new(TimeSpan.FromSeconds(PacketRecord.ShortTtl));
+        private readonly PeriodicTimer m_BroadcasterTimer;
         private readonly List<Packet> m_BroadcasterPackets = new();
 
-        public event Action<Packet>? OnPacketReceived;
+        public event Action<MdnsClient, Packet>? OnPacketReceived;
 
-        public MdnsClient(NetworkInterface networkInterface, ILogger<MdnsClient> logger)
+        public MdnsClient(NetworkInterface networkInterface, TimeSpan broadcastInterval, ILogger<MdnsClient> logger)
         {
             m_Logger = logger;
-
+            m_BroadcasterTimer = new(broadcastInterval);
             var adapterIndex = networkInterface.GetIPProperties().GetIPv4Properties().Index;
             var multicastInterface = IPAddress.HostToNetworkOrder(adapterIndex);
             var membership = new MulticastOption(IPAddress.Parse(MdnsMulticastAddress), adapterIndex);
@@ -86,7 +86,7 @@ namespace HomeKit.Mdns
                         }
                     }
 
-                    OnPacketReceived?.Invoke(packet);
+                    OnPacketReceived?.Invoke(this, packet);
                 }
                 catch (Exception ex)
                 {

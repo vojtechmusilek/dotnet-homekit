@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
@@ -24,14 +25,16 @@ namespace HomeKit
         private readonly ILoggerFactory m_LoggerFactory;
         private readonly ILogger m_Logger;
 
-        private readonly HashSet<HapClient> m_Clients = new();
+        private readonly HashSet<HapClient> m_HapClients = new();
         private readonly HashSet<Accessory> m_Accessories = new();
+        private readonly HashSet<MdnsClient> m_MdnsClients = new();
 
         private readonly IPAddress m_IpAddress;
         private readonly ushort m_Port;
         private readonly string m_PinCode;
         private readonly string m_SetupId;
         private readonly string m_MacAddress;
+        private readonly uint m_BroadcastIntervalSeconds;
 
         private readonly ServerState m_State;
         private readonly string m_StateFilePath;
@@ -40,7 +43,6 @@ namespace HomeKit
         private readonly Category m_Category;
         private readonly ushort m_MaxClients;
 
-        private MdnsClient? m_MdnsClient = null!;
         private Task? m_ClientReceiverTask;
         private CancellationTokenSource m_StoppingToken = null!;
 
@@ -51,24 +53,33 @@ namespace HomeKit
 
         public AccessoryServer(AccessoryServerOptions options)
         {
-            m_IpAddress = string.IsNullOrWhiteSpace(options.IpAddress) ? IPAddress.Any : IPAddress.Parse(options.IpAddress);
+            m_IpAddress = Utils.GetServerIpAddress(options.IpAddress ?? "");
             m_Port = options.Port ?? 23232;
 
             m_PinCode = options.PinCode ?? Utils.GeneratePinCode();
             m_MacAddress = options.MacAddress ?? Utils.GenerateMacAddress();
             m_SetupId = Utils.GenerateSetupId();
+            m_BroadcastIntervalSeconds = options.BroadcastIntervalSeconds ?? PacketRecord.ShortTtl;
 
             m_LoggerFactory = options.LoggerFactory ?? NullLoggerFactory.Instance;
             m_Logger = m_LoggerFactory.CreateLogger<AccessoryServer>();
 
-            var directoryPath = Path.GetDirectoryName(options.StateDirectory ?? AppDomain.CurrentDomain.BaseDirectory);
+            var directoryPath = options.StateDirectory ?? AppDomain.CurrentDomain.BaseDirectory;
             m_StateFilePath = Path.Join(directoryPath, $"server_state_{m_MacAddress.Replace(':', '_')}.json");
 
             m_MaxClients = options.MaxClients ?? ushort.MaxValue;
             m_Name = options.Name ?? "DefaultAccessory";
             m_Category = options.Category ?? Category.Other;
 
-            m_State = ServerState.Load(m_StateFilePath);
+            m_Logger.LogTrace("Loading state at {Path}", m_StateFilePath);
+
+            m_State = ServerState.Load(m_StateFilePath, out var newState);
+            if (newState)
+            {
+                m_Logger.LogInformation("State was not found, creating new state");
+            }
+
+            m_Logger.LogTrace("State has {Count} clients", m_State.PairedClients.Count);
         }
 
         public PairedClient? GetPairedClient(Guid id)
@@ -161,7 +172,7 @@ namespace HomeKit
         {
             await m_StoppingToken.CancelAsync();
 
-            await Task.WhenAll(m_Clients.Select(x => x.StopAsync()));
+            await Task.WhenAll(m_HapClients.Select(x => x.StopAsync()));
 
             if (m_ClientReceiverTask is not null)
             {
@@ -199,21 +210,55 @@ namespace HomeKit
 
         private async Task SetupMdns(CancellationToken stoppingToken)
         {
-            var nis = Utils.GetMulticastNetworkInterfaces();
-            var ni = nis.FirstOrDefault(x => x.GetIPProperties().UnicastAddresses.Any(y => y.Address.Equals(m_IpAddress)));
-            if (ni is null)
+            m_Logger.LogInformation("Searching for available network interfaces");
+
+            var interfaces = Utils.GetMulticastNetworkInterfaces();
+            NetworkInterface? prefferedInterface = null;
+
+            foreach (var nix in interfaces)
             {
-                m_Logger.LogError("Failed to find network interface with specified address");
+                foreach (var item in nix.GetIPProperties().UnicastAddresses)
+                {
+                    if (item.Address.AddressFamily == AddressFamily.InterNetwork)
+                    {
+                        if (item.Address.Equals(m_IpAddress))
+                        {
+                            prefferedInterface = nix;
+                        }
+
+                        m_Logger.LogInformation("Available interface {Name}, {IpAddress}", nix.Name, item.Address);
+                        break;
+                    }
+                }
+            }
+
+            if (prefferedInterface is not null)
+            {
+                m_Logger.LogInformation("Using preffered interface {Name}", prefferedInterface.Name);
+
+                var mdnsClient = CreateMdnsClient(prefferedInterface);
+                await mdnsClient.StartAsync(stoppingToken);
+
                 return;
             }
 
-            m_Logger.LogTrace("Interface: {interface}", ni.Name);
+            m_Logger.LogInformation("Using all {Count} interfaces", interfaces.Length);
 
-            m_MdnsClient = new MdnsClient(ni, m_LoggerFactory.CreateLogger<MdnsClient>());
-            m_MdnsClient.OnPacketReceived += MdnsClient_OnPacketReceived;
-            m_MdnsClient.BroadcastPeriodically(CreateBroadcastPacket());
+            foreach (var networkInterface in interfaces)
+            {
+                var mdnsClient = CreateMdnsClient(networkInterface);
+                await mdnsClient.StartAsync(stoppingToken);
+            }
+        }
 
-            await m_MdnsClient.StartAsync(stoppingToken);
+        private MdnsClient CreateMdnsClient(NetworkInterface networkInterface)
+        {
+            var interval = TimeSpan.FromSeconds(m_BroadcastIntervalSeconds);
+            var mdnsClient = new MdnsClient(networkInterface, interval, m_LoggerFactory.CreateLogger<MdnsClient>());
+            mdnsClient.OnPacketReceived += MdnsClient_OnPacketReceived;
+            mdnsClient.BroadcastPeriodically(CreateBroadcastPacket());
+            m_MdnsClients.Add(mdnsClient);
+            return mdnsClient;
         }
 
         private async Task ClientReceiverTask(CancellationToken stoppingToken)
@@ -228,7 +273,7 @@ namespace HomeKit
                 m_Logger.LogInformation("Accepted new TCP client {remote}", client.Client.RemoteEndPoint);
 
                 var hapClient = new HapClient(this, client, m_LoggerFactory.CreateLogger<HapClient>());
-                m_Clients.Add(hapClient);
+                m_HapClients.Add(hapClient);
 
                 await hapClient.StartAsync(stoppingToken);
             }
@@ -236,10 +281,10 @@ namespace HomeKit
 
         internal void RemoveClientReceiver(HapClient client)
         {
-            m_Clients.Remove(client);
+            m_HapClients.Remove(client);
         }
 
-        private void MdnsClient_OnPacketReceived(Packet packet)
+        private void MdnsClient_OnPacketReceived(MdnsClient sender, Packet packet)
         {
             foreach (var question in packet.Questions)
             {
@@ -253,7 +298,7 @@ namespace HomeKit
                     continue;
                 }
 
-                m_MdnsClient?.Broadcast(CreateBroadcastPacket());
+                sender?.Broadcast(CreateBroadcastPacket());
             }
         }
 

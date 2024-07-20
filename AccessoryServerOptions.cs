@@ -13,6 +13,7 @@ namespace HomeKit
         public string? MacAddress;
         public string? StateDirectory;
         public ushort? MaxClients;
+        public uint? BroadcastIntervalSeconds;
         public ILoggerFactory? LoggerFactory;
     }
 }

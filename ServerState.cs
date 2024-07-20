@@ -26,14 +26,17 @@ namespace HomeKit
             PairedClients = new();
         }
 
-        public static ServerState Load(string filePath)
+        public static ServerState Load(string filePath, out bool newState)
         {
+            newState = false;
+
             if (File.Exists(filePath))
             {
                 using var fileStream = File.OpenRead(filePath);
                 return JsonSerializer.Deserialize<ServerState>(fileStream)!;
             }
 
+            newState = true;
             return new ServerState();
         }
 

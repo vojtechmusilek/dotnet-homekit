@@ -3,7 +3,9 @@ using System.Buffers;
 using System.Buffers.Text;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -218,6 +220,28 @@ namespace HomeKit
             }
 
             throw new Exception("Failed to write guid");
+        }
+
+        public static IPAddress GetServerIpAddress(string preffered = "")
+        {
+            var addresses = Dns.GetHostAddresses(preffered, AddressFamily.InterNetwork);
+
+            foreach (var address in addresses)
+            {
+                if (IPAddress.IsLoopback(address))
+                {
+                    continue;
+                }
+
+                return address;
+            }
+
+            if (preffered != "")
+            {
+                return GetServerIpAddress();
+            }
+
+            throw new Exception("Failed to get server ip");
         }
     }
 }
