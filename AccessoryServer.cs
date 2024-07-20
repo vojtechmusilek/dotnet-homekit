@@ -263,6 +263,7 @@ namespace HomeKit
 
         private async Task ClientReceiverTask(CancellationToken stoppingToken)
         {
+            // https://stackoverflow.com/a/67442253/7838578
             var listener = new TcpListener(IPAddress.Any, m_Port);
             listener.Start();
 

@@ -99,7 +99,7 @@ namespace HomeKit.Mdns
                         break;
                     }
 
-                    txts.Add(split[0], split[1]);
+                    txts[split[0]] = split[1];
                 }
 
                 recordData = new PacketRecordData_TXT()
