@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -195,8 +196,16 @@ namespace HomeKit
 
                     foreach (var characteristic in service.Characteristics)
                     {
-                        characteristic.Iid = iid++;
-                        characteristic.Aid = accessory.Aid;
+                        var iidbf = characteristic.GetType().GetField("<Iid>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+                        iidbf!.SetValue(characteristic, iid++);
+
+                        var aidbf = characteristic.GetType().GetField("<Aid>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+                        aidbf!.SetValue(characteristic, accessory.Aid);
+
+                        ;
+
+                        //characteristic.Iid = iid++;
+                        //characteristic.Aid = accessory.Aid;
                     }
                 }
             }

@@ -23,6 +23,7 @@ namespace HomeKit
             ReadCommentHandling = JsonCommentHandling.Skip,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            Converters = { new SkipNullValuesListConverter<ICharacteristic>() }
         };
 
         public static readonly JsonSerializerOptions HapDefJsonOptions = new()
