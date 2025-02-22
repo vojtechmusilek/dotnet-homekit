@@ -3,14 +3,16 @@ using HomeKit.Characteristics;
 
 namespace HomeKit.Services
 {
-    public class SwitchService : Service
+    public class LockMechanismService : Service
     {
-        public SwitchService() : base("49")
+        public LockMechanismService() : base("45")
         {
-            Characteristics.Add(On);
+            Characteristics.Add(LockCurrentState);
+            Characteristics.Add(LockTargetState);
         }
 
-        public OnCharacteristic On { get; } = new();
+        public LockCurrentStateCharacteristic LockCurrentState { get; } = new();
+        public LockTargetStateCharacteristic LockTargetState { get; } = new();
 
         public NameCharacteristic? Name { get; private set; }
 

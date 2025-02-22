@@ -3,14 +3,16 @@ using HomeKit.Characteristics;
 
 namespace HomeKit.Services
 {
-    public class SwitchService : Service
+    public class MicrophoneService : Service
     {
-        public SwitchService() : base("49")
+        public MicrophoneService() : base("12")
         {
-            Characteristics.Add(On);
+            Characteristics.Add(Volume);
+            Characteristics.Add(Mute);
         }
 
-        public OnCharacteristic On { get; } = new();
+        public VolumeCharacteristic Volume { get; } = new();
+        public MuteCharacteristic Mute { get; } = new();
 
         public NameCharacteristic? Name { get; private set; }
 

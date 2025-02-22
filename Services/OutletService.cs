@@ -3,14 +3,16 @@ using HomeKit.Characteristics;
 
 namespace HomeKit.Services
 {
-    public class SwitchService : Service
+    public class OutletService : Service
     {
-        public SwitchService() : base("49")
+        public OutletService() : base("47")
         {
             Characteristics.Add(On);
+            Characteristics.Add(OutletInUse);
         }
 
         public OnCharacteristic On { get; } = new();
+        public OutletInUseCharacteristic OutletInUse { get; } = new();
 
         public NameCharacteristic? Name { get; private set; }
 

@@ -3,14 +3,14 @@ using HomeKit.Characteristics;
 
 namespace HomeKit.Services
 {
-    public class SwitchService : Service
+    public class ServiceLabelService : Service
     {
-        public SwitchService() : base("49")
+        public ServiceLabelService() : base("CC")
         {
-            Characteristics.Add(On);
+            Characteristics.Add(ServiceLabelNamespace);
         }
 
-        public OnCharacteristic On { get; } = new();
+        public ServiceLabelNamespaceCharacteristic ServiceLabelNamespace { get; } = new();
 
         public NameCharacteristic? Name { get; private set; }
 
