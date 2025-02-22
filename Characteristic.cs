@@ -1,5 +1,4 @@
 ﻿using System;
-using HomeKit.Characteristics.Abstract;
 using HomeKit.Resources;
 
 namespace HomeKit
