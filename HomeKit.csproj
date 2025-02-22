@@ -12,10 +12,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Resources\**" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Easy-X25519" Version="1.0.0" />
     <PackageReference Include="Ed25519" Version="1.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
