@@ -1,10 +1,11 @@
 ﻿using System;
+using HomeKit.Characteristics.Abstract;
 using HomeKit.Resources;
 
 namespace HomeKit
 {
     /// 6.3.3
-    public class Characteristic : ICharacteristic
+    public class Characteristic // : ACharacteristic
     {
         private readonly CharacteristicDef m_Def;
 

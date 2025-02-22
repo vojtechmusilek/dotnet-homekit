@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Ed25519;
+using HomeKit.Characteristics.Abstract;
 using Microsoft.Extensions.Logging;
 using X25519;
 
@@ -661,25 +662,27 @@ namespace HomeKit.Hap
 
                 if (characteristicWrite.Ev is not null)
                 {
-                    if (characteristic is Characteristic typed)
-                    {
-                        if (characteristicWrite.Ev.Value)
-                        {
-                            typed.OnValueChange += OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Add(typed);
-                            m_Logger.LogTrace("Subscription added {sub}", characteristicWrite);
-                        }
-                        else
-                        {
-                            typed.OnValueChange -= OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Remove(typed);
-                            m_Logger.LogTrace("Subscription removed {sub}", characteristicWrite);
-                        }
-                    }
-                    else
-                    {
-                        // todo handle
-                    }
+                    // todo
+
+                    //if (characteristic is Characteristic typed)
+                    //{
+                    //    if (characteristicWrite.Ev.Value)
+                    //    {
+                    //        typed.OnValueChange += OnSubscriptionValueChange;
+                    //        m_SubscribedCharacteristics.Add(typed);
+                    //        m_Logger.LogTrace("Subscription added {sub}", characteristicWrite);
+                    //    }
+                    //    else
+                    //    {
+                    //        typed.OnValueChange -= OnSubscriptionValueChange;
+                    //        m_SubscribedCharacteristics.Remove(typed);
+                    //        m_Logger.LogTrace("Subscription removed {sub}", characteristicWrite);
+                    //    }
+                    //}
+                    //else
+                    //{
+                    //    // todo handle
+                    //}
 
                     continue;
                 }
@@ -688,7 +691,24 @@ namespace HomeKit.Hap
                 {
                     // todo find better way
                     m_EventBlockHashCode = characteristic.GetHashCode();
-                    characteristic.Value = characteristicWrite.Value;
+
+                    if (characteristic is BoolCharacteristic boolCharacteristic)
+                    {
+                        boolCharacteristic.SetValue(characteristicWrite.Value);
+                    }
+                    else if (characteristic is FloatCharacteristic floatCharacteristic)
+                    {
+                        floatCharacteristic.Value = (float)characteristicWrite.Value;
+                    }
+                    else if (characteristic is StringCharacteristic stringCharacteristic)
+                    {
+                        stringCharacteristic.Value = (string)characteristicWrite.Value;
+                    }
+                    else
+                    {
+                        throw new NotImplementedException("PutCharacteristics: " + characteristic.GetType().FullName);
+                    }
+
                     m_EventBlockHashCode = null;
                 }
             }
@@ -777,12 +797,37 @@ namespace HomeKit.Hap
                     }
                     else
                     {
-                        characteristics[i] = new CharacteristicRead()
+                        if (characteristic is BoolCharacteristic boolCharacteristic)
                         {
-                            Aid = aid,
-                            Iid = iid,
-                            Value = characteristic.Value,
-                        };
+                            characteristics[i] = new CharacteristicRead()
+                            {
+                                Aid = aid,
+                                Iid = iid,
+                                Value = boolCharacteristic.Value,
+                            };
+                        }
+                        else if (characteristic is FloatCharacteristic floatCharacteristic)
+                        {
+                            characteristics[i] = new CharacteristicRead()
+                            {
+                                Aid = aid,
+                                Iid = iid,
+                                Value = floatCharacteristic.Value,
+                            };
+                        }
+                        else if (characteristic is StringCharacteristic stringCharacteristic)
+                        {
+                            characteristics[i] = new CharacteristicRead()
+                            {
+                                Aid = aid,
+                                Iid = iid,
+                                Value = stringCharacteristic.Value,
+                            };
+                        }
+                        else
+                        {
+                            throw new NotImplementedException("PutCharacteristics: " + characteristic.GetType().FullName);
+                        }
                     }
                 }
             }
