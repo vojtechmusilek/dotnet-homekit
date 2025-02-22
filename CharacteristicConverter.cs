@@ -2,18 +2,17 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HomeKit.Characteristics;
-using HomeKit.Characteristics.Abstract;
 
 namespace HomeKit
 {
-    internal class ACharacteristicConverter : JsonConverter<ACharacteristic>
+    internal class CharacteristicConverter : JsonConverter<Characteristic>
     {
-        public override ACharacteristic Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        public override Characteristic Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
             throw new NotImplementedException("Deserialization is not implemented");
         }
 
-        public override void Write(Utf8JsonWriter writer, ACharacteristic value, JsonSerializerOptions options)
+        public override void Write(Utf8JsonWriter writer, Characteristic value, JsonSerializerOptions options)
         {
             writer.WriteStartObject();
             writer.WriteNumber("iid", value.Iid);
@@ -28,7 +27,7 @@ namespace HomeKit
 
             if (value is BoolCharacteristic boolCharacteristic)
             {
-                if (value is not IdentifyCharacteristics)
+                if (value is not IdentifyCharacteristic)
                 {
                     writer.WriteBoolean("value", boolCharacteristic.Value);
                 }

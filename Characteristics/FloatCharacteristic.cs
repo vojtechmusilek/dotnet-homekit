@@ -1,15 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace HomeKit.Characteristics.Abstract
+namespace HomeKit.Characteristics
 {
-    public abstract class FloatCharacteristic : ACharacteristic
+    public abstract class FloatCharacteristic(string type, string[] perms) : Characteristic(type, perms, "float")
     {
         private float m_Value;
 
-        public override string Format => "float";
         public float Value { get => m_Value; set => SetValue(value); }
-        //object ACharacteristic.Value { get => Value; set => Value = (double)value; }
         public virtual Dictionary<string, int>? ValidValues { get; }
         public virtual float? MaxValue { get; }
         public virtual float? MinValue { get; }

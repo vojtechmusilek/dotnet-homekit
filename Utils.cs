@@ -10,7 +10,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using HomeKit.Characteristics.Abstract;
 using HomeKit.Resources;
 
 namespace HomeKit
@@ -24,7 +23,7 @@ namespace HomeKit
             ReadCommentHandling = JsonCommentHandling.Skip,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-            Converters = { new SkipNullValuesListConverter<ACharacteristic>(), new ACharacteristicConverter() }
+            Converters = { new SkipNullValuesListConverter<Characteristic>(), new CharacteristicConverter() }
         };
 
         public static readonly JsonSerializerOptions HapDefJsonOptions = new()

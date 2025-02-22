@@ -12,7 +12,7 @@ namespace HomeKit
         private readonly Category m_Category;
 
         public int Aid { get; set; }
-        public List<AService> Services { get; } = new();
+        public List<Service> Services { get; } = new();
 
         public Accessory(string name, Category category = Category.Other)
         {

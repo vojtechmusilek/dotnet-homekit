@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Sockets;
@@ -7,7 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Ed25519;
-using HomeKit.Characteristics.Abstract;
+using HomeKit.Characteristics;
 using Microsoft.Extensions.Logging;
 using X25519;
 
@@ -112,7 +112,8 @@ namespace HomeKit.Hap
 
             foreach (var characteristic in m_SubscribedCharacteristics)
             {
-                characteristic.OnValueChange -= OnSubscriptionValueChange;
+                // todo
+                //characteristic.OnValueChange -= OnSubscriptionValueChange;
             }
 
             m_AccessoryServer.RemoveClientReceiver(this);

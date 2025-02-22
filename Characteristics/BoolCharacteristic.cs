@@ -1,10 +1,8 @@
-﻿namespace HomeKit.Characteristics.Abstract
+﻿namespace HomeKit.Characteristics
 {
-    public abstract class BoolCharacteristic : ACharacteristic
+    public abstract class BoolCharacteristic(string type, string[] perms) : Characteristic(type, perms, "bool")
     {
-        public override string Format => "bool";
         public bool Value { get; set; }
-        //object ACharacteristic.Value { get => Value; set => SetValue(value); }
 
         public delegate void ValueChange(Characteristic sender, bool newValue);
         public event ValueChange? OnValueChange;

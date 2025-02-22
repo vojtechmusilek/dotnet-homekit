@@ -9,7 +9,6 @@ using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using HomeKit.Characteristics.Abstract;
 using HomeKit.Hap;
 using HomeKit.Mdns;
 using HomeKit.Resources;
@@ -145,7 +144,7 @@ namespace HomeKit
             return m_MacAddress;
         }
 
-        public ACharacteristic? GetCharacteristic(int aid, int iid)
+        public Characteristic? GetCharacteristic(int aid, int iid)
         {
             return Accessories
                 .FirstOrDefault(acc => acc.Aid == aid)?.Services
