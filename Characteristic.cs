@@ -2,6 +2,26 @@
 
 namespace HomeKit
 {
+    public abstract class Characteristic<T>(string type, string[] perms, string format) : Characteristic(type, perms, format)
+    {
+        private T? m_Value;
+
+        public T? Value { get => m_Value; set => SetValue(value); }
+
+        public delegate void ValueChange(Characteristic<T> sender, T newValue);
+        public event ValueChange? OnValueChange;
+
+        public virtual void SetValue(T? value)
+        {
+            m_Value = value;
+
+            if (m_Value is not null)
+            {
+                OnValueChange?.Invoke(this, m_Value);
+            }
+        }
+    }
+
     public abstract class Characteristic(string type, string[] perms, string format)
     {
         [JsonIgnore]
