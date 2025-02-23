@@ -9,15 +9,15 @@ namespace HomeKit
         public T? Value { get => m_Value; set => SetValue(value); }
 
         public delegate void ValueChange(Characteristic<T> sender, T newValue);
-        public event ValueChange? OnValueChange;
+        public event ValueChange? Changed;
 
-        public virtual void SetValue(T? value)
+        protected virtual void SetValue(T? value)
         {
             m_Value = value;
 
             if (m_Value is not null)
             {
-                OnValueChange?.Invoke(this, m_Value);
+                Changed?.Invoke(this, m_Value);
             }
         }
     }

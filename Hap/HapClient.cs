@@ -667,19 +667,19 @@ namespace HomeKit.Hap
                     {
                         if (characteristic is BoolCharacteristic boolCharacteristic)
                         {
-                            boolCharacteristic.OnValueChange += OnSubscriptionValueChange;
+                            boolCharacteristic.Changed += OnSubscriptionValueChange;
                             m_SubscribedCharacteristics.Add(boolCharacteristic);
                             m_Logger.LogDebug("Subscription added {sub}", characteristicWrite);
                         }
                         else if (characteristic is FloatCharacteristic floatCharacteristic)
                         {
-                            floatCharacteristic.OnValueChange += OnSubscriptionValueChange;
+                            floatCharacteristic.Changed += OnSubscriptionValueChange;
                             m_SubscribedCharacteristics.Add(floatCharacteristic);
                             m_Logger.LogDebug("Subscription added {sub}", characteristicWrite);
                         }
                         else if (characteristic is StringCharacteristic stringCharacteristic)
                         {
-                            stringCharacteristic.OnValueChange += OnSubscriptionValueChange;
+                            stringCharacteristic.Changed += OnSubscriptionValueChange;
                             m_SubscribedCharacteristics.Add(stringCharacteristic);
                             m_Logger.LogDebug("Subscription added {sub}", characteristicWrite);
                         }
@@ -692,19 +692,19 @@ namespace HomeKit.Hap
                     {
                         if (characteristic is BoolCharacteristic boolCharacteristic)
                         {
-                            boolCharacteristic.OnValueChange -= OnSubscriptionValueChange;
+                            boolCharacteristic.Changed -= OnSubscriptionValueChange;
                             m_SubscribedCharacteristics.Remove(boolCharacteristic);
                             m_Logger.LogDebug("Subscription removed {sub}", characteristicWrite);
                         }
                         else if (characteristic is FloatCharacteristic floatCharacteristic)
                         {
-                            floatCharacteristic.OnValueChange -= OnSubscriptionValueChange;
+                            floatCharacteristic.Changed -= OnSubscriptionValueChange;
                             m_SubscribedCharacteristics.Remove(floatCharacteristic);
                             m_Logger.LogDebug("Subscription removed {sub}", characteristicWrite);
                         }
                         else if (characteristic is StringCharacteristic stringCharacteristic)
                         {
-                            stringCharacteristic.OnValueChange -= OnSubscriptionValueChange;
+                            stringCharacteristic.Changed -= OnSubscriptionValueChange;
                             m_SubscribedCharacteristics.Remove(stringCharacteristic);
                             m_Logger.LogDebug("Subscription removed {sub}", characteristicWrite);
                         }
@@ -725,11 +725,11 @@ namespace HomeKit.Hap
                     {
                         if (characteristicWrite.Value is bool boolValue)
                         {
-                            boolCharacteristic.SetValue((bool)characteristicWrite.Value);
+                            boolCharacteristic.Value = (bool)characteristicWrite.Value;
                         }
                         else
                         {
-                            boolCharacteristic.SetValue((double)characteristicWrite.Value == 1);
+                            boolCharacteristic.Value = (double)characteristicWrite.Value == 1;
                         }
                     }
                     else if (characteristic is FloatCharacteristic floatCharacteristic)

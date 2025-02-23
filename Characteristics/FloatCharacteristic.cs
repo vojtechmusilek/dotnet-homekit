@@ -11,7 +11,7 @@ namespace HomeKit.Characteristics
         public virtual float? MinValue { get; }
         public virtual float? MinStep { get; }
 
-        public override void SetValue(float value)
+        protected override void SetValue(float value)
         {
             if (ValidValues is not null)
             {
