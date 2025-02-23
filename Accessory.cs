@@ -29,13 +29,13 @@ namespace HomeKit
             return server;
         }
 
-        public async Task<AccessoryServer> PublishAsync(AccessoryServerOptions options, CancellationToken cancellationToken)
+        public async Task<AccessoryServer> PublishAsync(AccessoryServerOptions options, CancellationToken? cancellationToken = null)
         {
             options.Name ??= m_Name;
             options.Category ??= m_Category;
 
             var server = PrepareServer(options);
-            await server.StartAsync(cancellationToken);
+            await server.StartAsync(cancellationToken ?? CancellationToken.None);
 
             return server;
         }
