@@ -1,63 +1,68 @@
 # dotnet-homekit
 
-### work in progress ...
-
-- [x] mdns discovery 
-- [x] hap pairing, publishing
-- [x] state persistence
-- [x] accessory bridge
-- [x] value change events
-- [x] send event on value change to notify ios device
-- [ ] typed service, characteristic generation
-- [ ] handle rare error cases
-- [ ] create examples
-- [ ] test accessories
-
-### current usage
-
-#### bridge accessory with 2 switches
+### accessory with 2 switches
 
 ```csharp
-var bridge = new AccessoryBridge("TestBridge", m_LoggerFactory);
+// create accessory
+var accessory = new Accessory("Switches", Category.Switch);
 
-var switch1 = new Accessory("TestSwitch1", Category.Switch, m_LoggerFactory);
-var switch1_service = switch1.AddService(ServiceType.Switch);
-switch1_service.AddCharacteristic(CharacteristicType.Name)!.Value = "S1";
-switch1_service.GetCharacteristic(CharacteristicType.On)!.Value = true;
+// add 2 switches
+var switch1 = new SwitchService();
+accessory.Services.Add(switch1);
 
-var switch2 = new Accessory("TestSwitch2", Category.Switch, m_LoggerFactory);
-var switch2_service = switch2.AddService(ServiceType.Switch);
-switch2_service.AddCharacteristic(CharacteristicType.Name)!.Value = "S2";
-switch2_service.GetCharacteristic(CharacteristicType.On)!.Value = false;
+var switch2 = new SwitchService();
+accessory.Services.Add(switch2);
 
-bridge.Accessories.Add(switch1);
-bridge.Accessories.Add(switch2);
-```
+// log value on change
+switch1.On.Changed += (sender, newValue) => Console.WriteLine($"switch1: {newValue}");
+switch2.On.Changed += (sender, newValue) => Console.WriteLine($"switch2: {newValue}");
 
-#### single accessory switch
-
-```csharp
-var accessory = new Accessory("TestAcc", Category.Switch);
-
-var service1 = accessory.AddService(ServiceType.Switch);
-service1.AddCharacteristic(CharacteristicType.Name)!.Value = "S1";
-service1.GetCharacteristic(CharacteristicType.On)!.Value = true;
-
-var service2 = accessory.AddService(ServiceType.Switch);
-service2.AddCharacteristic(CharacteristicType.Name)!.Value = "S2";
-service2.GetCharacteristic(CharacteristicType.On)!.Value = false;
-```
-
-#### publishing accessory/bridge
-
-```csharp
-await accessory.PublishAsync(new()
+await accessory.PublishAsync(new AccessoryServerOptions()
 {
-    IpAddress = "192.168.1.101",
-    Port = 25252,
-    PinCode = "123-00-123",
-    MacAddress = "41:F8:F3:AC:16:36",
-    StateDirectory = "c:/temp",
-}, CancellationToken.None);
+    // set mac persistent address
+    MacAddress = "11:22:33:00:00:00",
+});
+
+while (true)
+{
+    await Task.Delay(3000);
+
+    // mirror switch value
+    switch1.On.Value = switch2.On.Value;
+}
+```
+
+### accessory bridge
+
+```csharp
+// create bridge
+var bridge = new AccessoryBridge("Bridge");
+
+// create accessories
+var accessory1 = new Accessory("Switch 1");
+accessory1.Services.Add(new SwitchService());
+
+var accessory2 = new Accessory("Switch 2");
+accessory2.Services.Add(new SwitchService());
+
+// add to bridge
+bridge.Accessories.Add(accessory1);
+bridge.Accessories.Add(accessory2);
+```
+
+### typed services
+
+full list in [Services](./Services)
+
+```csharp
+var fan = new FanService();
+
+// always has On
+fan.On.Value = true;
+
+// optional characteristics
+fan.AddRotationSpeed(50);
+
+fan.RotationSpeed.Value = 45;
 
 ```

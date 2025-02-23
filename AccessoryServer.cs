@@ -144,7 +144,7 @@ namespace HomeKit
             return m_MacAddress;
         }
 
-        public ICharacteristic? GetCharacteristic(int aid, int iid)
+        public Characteristic? GetCharacteristic(int aid, int iid)
         {
             return Accessories
                 .FirstOrDefault(acc => acc.Aid == aid)?.Services
@@ -195,8 +195,19 @@ namespace HomeKit
 
                     foreach (var characteristic in service.Characteristics)
                     {
+                        //var iidbf = characteristic.GetType().GetField("<Iid>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+                        //iidbf!.SetValue(characteristic, iid++);
                         characteristic.Iid = iid++;
+
+                        //var aidbf = characteristic.GetType().GetField("<Aid>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+                        //aidbf!.SetValue(characteristic, accessory.Aid);
+
                         characteristic.Aid = accessory.Aid;
+
+                        ;
+
+                        //characteristic.Iid = iid++;
+                        //characteristic.Aid = accessory.Aid;
                     }
                 }
             }

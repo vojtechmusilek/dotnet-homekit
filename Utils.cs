@@ -23,6 +23,10 @@ namespace HomeKit
             ReadCommentHandling = JsonCommentHandling.Skip,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            Converters = {
+                new SkipNullValuesListConverter<Characteristic>(),
+                new CharacteristicConverter(),
+            }
         };
 
         public static readonly JsonSerializerOptions HapDefJsonOptions = new()
@@ -226,7 +230,7 @@ namespace HomeKit
         {
             var addresses = Dns.GetHostAddresses(preffered, AddressFamily.InterNetwork);
 
-            foreach (var address in addresses)
+            foreach (var address in addresses.OrderByDescending(ip => ip.ToString().StartsWith("192.168")))
             {
                 if (IPAddress.IsLoopback(address))
                 {

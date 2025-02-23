@@ -71,9 +71,7 @@ namespace HomeKit.Mdns
 
                     lock (m_Logger)
                     {
-                        m_Logger.LogInformation("Received {length} bytes from {remote}", res.Buffer.Length, res.RemoteEndPoint);
-
-                        m_Logger.LogTrace("Parsed packet from {remote} {header}", res.RemoteEndPoint, packet.Header);
+                        m_Logger.LogTrace("Parsed {length} bytes packet from {remote} {header}", res.Buffer.Length, res.RemoteEndPoint, packet.Header);
 
                         foreach (var question in packet.Questions)
                         {
