@@ -230,7 +230,7 @@ namespace HomeKit
         {
             var addresses = Dns.GetHostAddresses(preffered, AddressFamily.InterNetwork);
 
-            foreach (var address in addresses)
+            foreach (var address in addresses.OrderByDescending(ip => ip.ToString().StartsWith("192.168")))
             {
                 if (IPAddress.IsLoopback(address))
                 {
