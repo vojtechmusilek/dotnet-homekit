@@ -663,6 +663,34 @@ namespace HomeKit.Hap
 
                 if (characteristicWrite.Ev is not null)
                 {
+                    // if (characteristicWrite.Ev.Value)
+
+                    if (characteristic is BoolCharacteristic boolCharacteristic)
+                    {
+                        boolCharacteristic.OnValueChange += (sender, newValue) =>
+                        {
+                            OnSubscriptionValueChange(sender, newValue);
+                        };
+                    }
+                    else if (characteristic is FloatCharacteristic floatCharacteristic)
+                    {
+                        floatCharacteristic.OnValueChange += (sender, newValue) =>
+                        {
+                            OnSubscriptionValueChange(sender, newValue);
+                        };
+                    }
+                    else if (characteristic is StringCharacteristic stringCharacteristic)
+                    {
+                        stringCharacteristic.OnValueChange += (sender, newValue) =>
+                        {
+                            OnSubscriptionValueChange(sender, newValue);
+                        };
+                    }
+                    else
+                    {
+                        throw new NotImplementedException("ACharacteristicConverter: " + characteristic.GetType().FullName);
+                    }
+
                     // todo
 
                     //if (characteristic is Characteristic typed)

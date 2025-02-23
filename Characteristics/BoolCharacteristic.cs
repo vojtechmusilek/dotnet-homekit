@@ -15,6 +15,8 @@
                 double val => val == 1,
                 _ => Value,
             };
+
+            OnValueChange?.Invoke(this, Value);
         }
     }
 }
