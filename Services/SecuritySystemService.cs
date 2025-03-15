@@ -1,6 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
 using HomeKit.Characteristics;
-using HomeKit.Characteristics;
 
 namespace HomeKit.Services
 {
