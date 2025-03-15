@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using HomeKit.Resources;
@@ -20,6 +21,13 @@ namespace HomeKit
             m_Category = category;
 
             AddAccessoryInformationService();
+        }
+
+        public TService AddService<TService>() where TService : Service
+        {
+            var service = Activator.CreateInstance<TService>();
+            Services.Add(service);
+            return service;
         }
 
         protected virtual AccessoryServer PrepareServer(AccessoryServerOptions options)

@@ -658,7 +658,7 @@ namespace HomeKit.Hap
                 if (characteristic is null)
                 {
                     // todo handle error
-                    throw new NotImplementedException();
+                    throw new NotImplementedException("PutCharacteristics characteristic not found");
                 }
 
                 if (characteristicWrite.Ev is not null)
@@ -681,6 +681,24 @@ namespace HomeKit.Hap
                         {
                             stringCharacteristic.Changed += OnSubscriptionValueChange;
                             m_SubscribedCharacteristics.Add(stringCharacteristic);
+                            m_Logger.LogDebug("Subscription added {sub}", characteristicWrite);
+                        }
+                        else if (characteristic is IntCharacteristic intCharacteristic)
+                        {
+                            intCharacteristic.Changed += OnSubscriptionValueChange;
+                            m_SubscribedCharacteristics.Add(intCharacteristic);
+                            m_Logger.LogDebug("Subscription added {sub}", characteristicWrite);
+                        }
+                        else if (characteristic is Uint32Characteristic uintCharacteristic)
+                        {
+                            uintCharacteristic.Changed += OnSubscriptionValueChange;
+                            m_SubscribedCharacteristics.Add(uintCharacteristic);
+                            m_Logger.LogDebug("Subscription added {sub}", characteristicWrite);
+                        }
+                        else if (characteristic is Uint8Characteristic byteCharacteristic)
+                        {
+                            byteCharacteristic.Changed += OnSubscriptionValueChange;
+                            m_SubscribedCharacteristics.Add(byteCharacteristic);
                             m_Logger.LogDebug("Subscription added {sub}", characteristicWrite);
                         }
                         else
@@ -708,6 +726,24 @@ namespace HomeKit.Hap
                             m_SubscribedCharacteristics.Remove(stringCharacteristic);
                             m_Logger.LogDebug("Subscription removed {sub}", characteristicWrite);
                         }
+                        else if (characteristic is IntCharacteristic intCharacteristic)
+                        {
+                            intCharacteristic.Changed -= OnSubscriptionValueChange;
+                            m_SubscribedCharacteristics.Remove(intCharacteristic);
+                            m_Logger.LogDebug("Subscription removed {sub}", characteristicWrite);
+                        }
+                        else if (characteristic is Uint32Characteristic uintCharacteristic)
+                        {
+                            uintCharacteristic.Changed -= OnSubscriptionValueChange;
+                            m_SubscribedCharacteristics.Remove(uintCharacteristic);
+                            m_Logger.LogDebug("Subscription removed {sub}", characteristicWrite);
+                        }
+                        else if (characteristic is Uint8Characteristic byteCharacteristic)
+                        {
+                            byteCharacteristic.Changed -= OnSubscriptionValueChange;
+                            m_SubscribedCharacteristics.Remove(byteCharacteristic);
+                            m_Logger.LogDebug("Subscription removed {sub}", characteristicWrite);
+                        }
                         else
                         {
                             throw new NotImplementedException("ACharacteristicConverter: " + characteristic.GetType().FullName);
@@ -723,22 +759,27 @@ namespace HomeKit.Hap
 
                     if (characteristic is BoolCharacteristic boolCharacteristic)
                     {
-                        if (characteristicWrite.Value is bool boolValue)
-                        {
-                            boolCharacteristic.Value = (bool)characteristicWrite.Value;
-                        }
-                        else
-                        {
-                            boolCharacteristic.Value = (double)characteristicWrite.Value == 1;
-                        }
+                        boolCharacteristic.Value = Convert.ToBoolean(characteristicWrite.Value);
                     }
                     else if (characteristic is FloatCharacteristic floatCharacteristic)
                     {
-                        floatCharacteristic.Value = (float)characteristicWrite.Value;
+                        floatCharacteristic.Value = Convert.ToSingle(characteristicWrite.Value);
                     }
                     else if (characteristic is StringCharacteristic stringCharacteristic)
                     {
-                        stringCharacteristic.Value = (string)characteristicWrite.Value;
+                        stringCharacteristic.Value = Convert.ToString(characteristicWrite.Value);
+                    }
+                    else if (characteristic is IntCharacteristic intCharacteristic)
+                    {
+                        intCharacteristic.Value = Convert.ToInt32(characteristicWrite.Value);
+                    }
+                    else if (characteristic is Uint32Characteristic uintCharacteristic)
+                    {
+                        uintCharacteristic.Value = Convert.ToUInt32(characteristicWrite.Value);
+                    }
+                    else if (characteristic is Uint8Characteristic byteCharacteristic)
+                    {
+                        byteCharacteristic.Value = Convert.ToByte(characteristicWrite.Value);
                     }
                     else
                     {
@@ -821,8 +862,8 @@ namespace HomeKit.Hap
                     var characteristic = m_AccessoryServer.GetCharacteristic(aid, iid);
                     if (characteristic is null)
                     {
-                        // todo hangle error
-                        throw new NotImplementedException();
+                        // todo handle error
+                        throw new NotImplementedException("GetCharacteristics characteristic not found");
 
                         //characteristics[i] = new CharacteristicRead()
                         //{
@@ -833,37 +874,12 @@ namespace HomeKit.Hap
                     }
                     else
                     {
-                        if (characteristic is BoolCharacteristic boolCharacteristic)
+                        characteristics[i] = new CharacteristicRead()
                         {
-                            characteristics[i] = new CharacteristicRead()
-                            {
-                                Aid = aid,
-                                Iid = iid,
-                                Value = boolCharacteristic.Value,
-                            };
-                        }
-                        else if (characteristic is FloatCharacteristic floatCharacteristic)
-                        {
-                            characteristics[i] = new CharacteristicRead()
-                            {
-                                Aid = aid,
-                                Iid = iid,
-                                Value = floatCharacteristic.Value,
-                            };
-                        }
-                        else if (characteristic is StringCharacteristic stringCharacteristic)
-                        {
-                            characteristics[i] = new CharacteristicRead()
-                            {
-                                Aid = aid,
-                                Iid = iid,
-                                Value = stringCharacteristic.Value,
-                            };
-                        }
-                        else
-                        {
-                            throw new NotImplementedException("PutCharacteristics: " + characteristic.GetType().FullName);
-                        }
+                            Aid = aid,
+                            Iid = iid,
+                            Value = characteristic.GetObjectValue(),
+                        };
                     }
                 }
             }

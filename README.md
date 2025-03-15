@@ -6,12 +6,12 @@
 // create accessory
 var accessory = new Accessory("Switches", Category.Switch);
 
-// add 2 switches
-var switch1 = new SwitchService();
-accessory.Services.Add(switch1);
+// add 2 switches using AddService
+var switch1 = accessory.AddService<SwitchService>();
+var switch2 = accessory.AddService<SwitchService>();
 
-var switch2 = new SwitchService();
-accessory.Services.Add(switch2);
+// or add existing Service directly to Services list
+// accessory.Services.Add(someService);
 
 // log value on change
 switch1.On.Changed += (sender, newValue) => Console.WriteLine($"switch1: {newValue}");
@@ -40,10 +40,10 @@ var bridge = new AccessoryBridge("Bridge");
 
 // create accessories
 var accessory1 = new Accessory("Switch 1");
-accessory1.Services.Add(new SwitchService());
+accessory1.AddService<SwitchService>();
 
 var accessory2 = new Accessory("Switch 2");
-accessory2.Services.Add(new SwitchService());
+accessory2.AddService<SwitchService>();
 
 // add to bridge
 bridge.Accessories.Add(accessory1);

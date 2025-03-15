@@ -40,6 +40,18 @@ namespace HomeKit
             {
                 writer.WriteString("value", stringCharacteristic.Value);
             }
+            else if (value is IntCharacteristic intCharacteristic)
+            {
+                writer.WriteNumber("value", intCharacteristic.Value);
+            }
+            else if (value is Uint32Characteristic uintCharacteristic)
+            {
+                writer.WriteNumber("value", uintCharacteristic.Value);
+            }
+            else if (value is Uint8Characteristic byteCharacteristic)
+            {
+                writer.WriteNumber("value", byteCharacteristic.Value);
+            }
             else
             {
                 throw new NotImplementedException("ACharacteristicConverter: " + value.GetType().FullName);

@@ -13,12 +13,22 @@ namespace HomeKit
 
         protected virtual void SetValue(T? value)
         {
+            if (value is not null && value.Equals(m_Value))
+            {
+                return;
+            }
+
             m_Value = value;
 
             if (m_Value is not null)
             {
                 Changed?.Invoke(this, m_Value);
             }
+        }
+
+        public override object? GetObjectValue()
+        {
+            return m_Value;
         }
     }
 
@@ -30,5 +40,7 @@ namespace HomeKit
         public string Type { get; } = type;
         public string[] Perms { get; } = perms;
         public string Format { get; } = format;
+
+        public abstract object? GetObjectValue();
     }
 }
