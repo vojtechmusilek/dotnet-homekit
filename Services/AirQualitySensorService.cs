@@ -20,6 +20,7 @@ namespace HomeKit.Services
         public OzoneDensityCharacteristic? OzoneDensity { get; private set; }
         public NitrogenDioxideDensityCharacteristic? NitrogenDioxideDensity { get; private set; }
         public SulphurDioxideDensityCharacteristic? SulphurDioxideDensity { get; private set; }
+        public PM2DensityCharacteristic? PM2Density { get; private set; }
         public PM10DensityCharacteristic? PM10Density { get; private set; }
         public VOCDensityCharacteristic? VOCDensity { get; private set; }
         public CarbonMonoxideLevelCharacteristic? CarbonMonoxideLevel { get; private set; }
@@ -87,6 +88,14 @@ namespace HomeKit.Services
             SulphurDioxideDensity ??= new();
             SulphurDioxideDensity.Value = value;
             Characteristics.Add(SulphurDioxideDensity);
+        }
+
+        [MemberNotNull(nameof(PM2Density))]
+        public void AddPM2Density(float value)
+        {
+            PM2Density ??= new();
+            PM2Density.Value = value;
+            Characteristics.Add(PM2Density);
         }
 
         [MemberNotNull(nameof(PM10Density))]
