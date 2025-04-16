@@ -54,12 +54,12 @@ namespace HomeKit
         public AccessoryServer(AccessoryServerOptions options)
         {
             m_IpAddress = Utils.GetServerIpAddress(options.IpAddress ?? "");
-            m_Port = options.Port ?? 23232;
+            m_Port = options.Port ?? Utils.GetAvailablePort(m_IpAddress);
 
             m_PinCode = options.PinCode ?? Utils.GeneratePinCode();
             m_MacAddress = options.MacAddress ?? Utils.GenerateMacAddress();
             m_SetupId = Utils.GenerateSetupId();
-            m_BroadcastIntervalSeconds = options.BroadcastIntervalSeconds ?? PacketRecord.ShortTtl;
+            m_BroadcastIntervalSeconds = options.BroadcastIntervalSeconds ?? (options.Port.HasValue ? PacketRecord.ShortTtl : 1);
 
             m_LoggerFactory = options.LoggerFactory ?? NullLoggerFactory.Instance;
             m_Logger = m_LoggerFactory.CreateLogger<AccessoryServer>();

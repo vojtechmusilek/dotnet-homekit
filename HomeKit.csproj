@@ -5,19 +5,19 @@
     <OutputType>Library</OutputType>
     <Nullable>enable</Nullable>
     <PackageId>HomeKit.Server</PackageId>
-    <Version>0.0.2</Version>
+    <Version>0.0.3</Version>
     <Authors>Vojtěch Musílek</Authors>
     <Description>Native C# server implementation of HomeKit accessory protocol</Description>
     <RepositoryUrl>https://github.com/vojtechmusilek/dotnet-homekit</RepositoryUrl>
     <PackageProjectUrl>https://github.com/vojtechmusilek/dotnet-homekit</PackageProjectUrl>
     <PackageTags>csharp,dotnet,homekit,hap,homekit-accessory-protocol</PackageTags>
-    <Readme>README.md</Readme>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
     <None Remove=".git" />
     <None Remove=".gitignore" />
-    <None Include="README.md" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>

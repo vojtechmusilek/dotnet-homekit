@@ -14,10 +14,10 @@ Install using command:
 dotnet add package HomeKit.Server
 ```
 
-or add package reference:
+or add package reference with latest version:
 
 ```xml
-<PackageReference Include="HomeKit.Server" Version="0.0.2" />
+<PackageReference Include="HomeKit.Server" Version="0.0.0" />
 ```
 
 ## Typed HAP services

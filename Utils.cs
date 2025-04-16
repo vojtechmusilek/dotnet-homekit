@@ -74,6 +74,15 @@ namespace HomeKit
             return pinCode.ToString();
         }
 
+        public static ushort GetAvailablePort(IPAddress ip)
+        {
+            using var listener = new TcpListener(ip, 0);
+            listener.Start();
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            listener.Stop();
+            return (ushort)port;
+        }
+
         public static string GenerateXhmUri(Category category, string pinCode, string setupId)
         {
             long payload = 0;
