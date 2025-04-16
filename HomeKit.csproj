@@ -1,9 +1,16 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Library</OutputType>
     <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Library</OutputType>
     <Nullable>enable</Nullable>
+    <PackageId>HomeKit.Server</PackageId>
+    <Version>0.0.1</Version>
+    <Authors>Vojtěch Musílek</Authors>
+    <Description>Native C# server implementation of HomeKit accessory protocol</Description>
+    <RepositoryUrl>https://github.com/vojtechmusilek/dotnet-homekit</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/vojtechmusilek/dotnet-homekit</PackageProjectUrl>
+    <PackageTags>csharp,dotnet,homekit,hap,homekit-accessory-protocol</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
