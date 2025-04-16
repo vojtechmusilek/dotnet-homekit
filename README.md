@@ -1,58 +1,28 @@
 # dotnet-homekit
 
-### accessory with 2 switches
+## Examples
 
-```csharp
-// create accessory
-var accessory = new Accessory("Switches", Category.Switch);
+Examples are available at [dotnet-homekit-examples](https://github.com/vojtechmusilek/dotnet-homekit-examples)
 
-// add 2 switches using AddService
-var switch1 = accessory.AddService<SwitchService>();
-var switch2 = accessory.AddService<SwitchService>();
+## How to install
 
-// or add existing Service directly to Services list
-// accessory.Services.Add(someService);
+Available on NuGet: [HomeKit.Server](https://www.nuget.org/packages/HomeKit.Server)
 
-// log value on change
-switch1.On.Changed += (sender, newValue) => Console.WriteLine($"switch1: {newValue}");
-switch2.On.Changed += (sender, newValue) => Console.WriteLine($"switch2: {newValue}");
+Install using command:
 
-await accessory.PublishAsync(new AccessoryServerOptions()
-{
-    // set mac persistent address
-    MacAddress = "11:22:33:00:00:00",
-});
-
-while (true)
-{
-    await Task.Delay(3000);
-
-    // mirror switch value
-    switch1.On.Value = switch2.On.Value;
-}
+```sh
+dotnet add package HomeKit.Server
 ```
 
-### accessory bridge
+or add package reference:
 
-```csharp
-// create bridge
-var bridge = new AccessoryBridge("Bridge");
-
-// create accessories
-var accessory1 = new Accessory("Switch 1");
-accessory1.AddService<SwitchService>();
-
-var accessory2 = new Accessory("Switch 2");
-accessory2.AddService<SwitchService>();
-
-// add to bridge
-bridge.Accessories.Add(accessory1);
-bridge.Accessories.Add(accessory2);
+```xml
+<PackageReference Include="HomeKit.Server" Version="0.0.2" />
 ```
 
-### typed services
+## Typed HAP services
 
-full list in [Services](./Services)
+full list in [dotnet-homekit/Services](./Services)
 
 ```csharp
 var fan = new FanService();
@@ -62,7 +32,6 @@ fan.On.Value = true;
 
 // optional characteristics
 fan.AddRotationSpeed(50);
-
 fan.RotationSpeed.Value = 45;
 
 ```
