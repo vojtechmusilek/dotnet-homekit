@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,7 +12,8 @@ namespace HomeKit
         private readonly string m_Name;
         private readonly Category m_Category;
 
-        public int Aid { get; set; }
+        [JsonInclude]
+        internal int Aid { get; set; }
         public List<Service> Services { get; } = new();
 
         public Accessory(string name, Category category = Category.Other)

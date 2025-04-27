@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
@@ -20,7 +20,7 @@ namespace HomeKit
         [Obsolete("Use .Subscribe(YourMethod) OR .Subscribe((sender, newValue) => { ... }) instead of .Changed += ...")]
         public event ValueChange? Changed;
 
-        protected virtual void SetValue(T? value)
+        protected internal virtual void SetValue(T? value)
         {
             if (value is not null && value.Equals(m_Value))
             {
@@ -74,8 +74,9 @@ namespace HomeKit
     public abstract class Characteristic(string type, string[] perms, string format)
     {
         [JsonIgnore]
-        public int Aid { get; set; }
-        public int Iid { get; set; }
+        internal int Aid { get; set; }
+        [JsonInclude]
+        internal int Iid { get; set; }
         public string Type { get; } = type;
         public string[] Perms { get; } = perms;
         public string Format { get; } = format;
