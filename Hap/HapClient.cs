@@ -7,7 +7,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Ed25519;
-using HomeKit.Characteristics;
 using Microsoft.Extensions.Logging;
 using X25519;
 
@@ -665,127 +664,19 @@ namespace HomeKit.Hap
                 {
                     if (characteristicWrite.Ev.Value)
                     {
-                        if (characteristic is BoolCharacteristic boolCharacteristic)
-                        {
-                            boolCharacteristic.Changed += OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Add(boolCharacteristic);
-                            m_Logger.LogDebug("Subscription added {sub}", characteristicWrite);
-                        }
-                        else if (characteristic is FloatCharacteristic floatCharacteristic)
-                        {
-                            floatCharacteristic.Changed += OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Add(floatCharacteristic);
-                            m_Logger.LogDebug("Subscription added {sub}", characteristicWrite);
-                        }
-                        else if (characteristic is StringCharacteristic stringCharacteristic)
-                        {
-                            stringCharacteristic.Changed += OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Add(stringCharacteristic);
-                            m_Logger.LogDebug("Subscription added {sub}", characteristicWrite);
-                        }
-                        else if (characteristic is IntCharacteristic intCharacteristic)
-                        {
-                            intCharacteristic.Changed += OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Add(intCharacteristic);
-                            m_Logger.LogDebug("Subscription added {sub}", characteristicWrite);
-                        }
-                        else if (characteristic is Uint32Characteristic uintCharacteristic)
-                        {
-                            uintCharacteristic.Changed += OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Add(uintCharacteristic);
-                            m_Logger.LogDebug("Subscription added {sub}", characteristicWrite);
-                        }
-                        else if (characteristic is Uint8Characteristic byteCharacteristic)
-                        {
-                            byteCharacteristic.Changed += OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Add(byteCharacteristic);
-                            m_Logger.LogDebug("Subscription added {sub}", characteristicWrite);
-                        }
-                        else
-                        {
-                            throw new NotImplementedException("ACharacteristicConverter: " + characteristic.GetType().FullName);
-                        }
+                        Subscribe(characteristic);
                     }
                     else
                     {
-                        if (characteristic is BoolCharacteristic boolCharacteristic)
-                        {
-                            boolCharacteristic.Changed -= OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Remove(boolCharacteristic);
-                            m_Logger.LogDebug("Subscription removed {sub}", characteristicWrite);
-                        }
-                        else if (characteristic is FloatCharacteristic floatCharacteristic)
-                        {
-                            floatCharacteristic.Changed -= OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Remove(floatCharacteristic);
-                            m_Logger.LogDebug("Subscription removed {sub}", characteristicWrite);
-                        }
-                        else if (characteristic is StringCharacteristic stringCharacteristic)
-                        {
-                            stringCharacteristic.Changed -= OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Remove(stringCharacteristic);
-                            m_Logger.LogDebug("Subscription removed {sub}", characteristicWrite);
-                        }
-                        else if (characteristic is IntCharacteristic intCharacteristic)
-                        {
-                            intCharacteristic.Changed -= OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Remove(intCharacteristic);
-                            m_Logger.LogDebug("Subscription removed {sub}", characteristicWrite);
-                        }
-                        else if (characteristic is Uint32Characteristic uintCharacteristic)
-                        {
-                            uintCharacteristic.Changed -= OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Remove(uintCharacteristic);
-                            m_Logger.LogDebug("Subscription removed {sub}", characteristicWrite);
-                        }
-                        else if (characteristic is Uint8Characteristic byteCharacteristic)
-                        {
-                            byteCharacteristic.Changed -= OnSubscriptionValueChange;
-                            m_SubscribedCharacteristics.Remove(byteCharacteristic);
-                            m_Logger.LogDebug("Subscription removed {sub}", characteristicWrite);
-                        }
-                        else
-                        {
-                            throw new NotImplementedException("ACharacteristicConverter: " + characteristic.GetType().FullName);
-                        }
+                        Unsubscribe(characteristic);
                     }
-
                     continue;
                 }
 
                 if (characteristicWrite.Value is not null)
                 {
                     m_EventBlockHashCode = characteristic.GetHashCode();
-
-                    if (characteristic is BoolCharacteristic boolCharacteristic)
-                    {
-                        boolCharacteristic.Value = Convert.ToBoolean(characteristicWrite.Value);
-                    }
-                    else if (characteristic is FloatCharacteristic floatCharacteristic)
-                    {
-                        floatCharacteristic.Value = Convert.ToSingle(characteristicWrite.Value);
-                    }
-                    else if (characteristic is StringCharacteristic stringCharacteristic)
-                    {
-                        stringCharacteristic.Value = Convert.ToString(characteristicWrite.Value);
-                    }
-                    else if (characteristic is IntCharacteristic intCharacteristic)
-                    {
-                        intCharacteristic.Value = Convert.ToInt32(characteristicWrite.Value);
-                    }
-                    else if (characteristic is Uint32Characteristic uintCharacteristic)
-                    {
-                        uintCharacteristic.Value = Convert.ToUInt32(characteristicWrite.Value);
-                    }
-                    else if (characteristic is Uint8Characteristic byteCharacteristic)
-                    {
-                        byteCharacteristic.Value = Convert.ToByte(characteristicWrite.Value);
-                    }
-                    else
-                    {
-                        throw new NotImplementedException("PutCharacteristics: " + characteristic.GetType().FullName);
-                    }
-
+                    characteristic.ValueFromObject(characteristicWrite.Value);
                     m_EventBlockHashCode = null;
                 }
             }
@@ -793,7 +684,21 @@ namespace HomeKit.Hap
             return HttpWriter.WriteNoContent(tx);
         }
 
-        private void OnSubscriptionValueChange<T>(Characteristic<T> sender, T newValue)
+        private void Unsubscribe(Characteristic characteristic)
+        {
+            characteristic.Unsubscribe(OnSubscriptionValueChange);
+            m_SubscribedCharacteristics.Remove(characteristic);
+            m_Logger.LogInformation("Subscription removed for {aid}.{iid}", characteristic.Aid, characteristic.Iid);
+        }
+
+        private void Subscribe(Characteristic characteristic)
+        {
+            characteristic.Subscribe(OnSubscriptionValueChange);
+            m_SubscribedCharacteristics.Add(characteristic);
+            m_Logger.LogInformation("Subscription added for {aid}.{iid}", characteristic.Aid, characteristic.Iid);
+        }
+
+        private void OnSubscriptionValueChange(Characteristic sender, object newValue)
         {
             if (m_EventBlockHashCode == sender.GetHashCode())
             {
