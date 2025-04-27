@@ -26,9 +26,9 @@ namespace HomeKit.Hap
         private readonly Srp6aServer m_SrpServer = new();
         private readonly HapAead m_Aead;
 
-        private readonly byte[] m_ReadBuffer = new byte[1024];
-        private readonly byte[] m_WriteBuffer = new byte[4096];
-        private readonly byte[] m_EventBuffer = new byte[1024];
+        private readonly byte[] m_WriteBuffer;
+        private readonly byte[] m_ReadBuffer = new byte[HapClientConst.ReadBufferLength];
+        private readonly byte[] m_EventBuffer = new byte[HapClientConst.EventBufferLength];
 
         private readonly byte[] m_AccessoryCurvePk = new byte[32];
         private readonly byte[] m_IosDeviceCurvePk = new byte[32];
@@ -56,6 +56,9 @@ namespace HomeKit.Hap
             m_Aead = new(logger);
 
             m_RemoteIp = m_Socket.RemoteEndPoint?.ToString() ?? "unknown";
+
+            var characteristicCount = server.Accessories.DefaultIfEmpty().Sum(x => x?.Services.DefaultIfEmpty().Sum(y => y?.Characteristics.Count ?? 0) ?? 0);
+            m_WriteBuffer = new byte[characteristicCount * HapClientConst.WriteBufferBytesPerCharacteristic];
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -85,8 +88,7 @@ namespace HomeKit.Hap
 
                 if (requestLength == m_ReadBuffer.Length)
                 {
-                    // todo handle - Array.Resize
-                    throw new NotImplementedException("Read buffer overflow");
+                    throw new OverflowException("Read buffer overflow, increase HapClientConst.ReadBufferLength");
                 }
 
                 try
@@ -844,5 +846,14 @@ namespace HomeKit.Hap
             return httpLength;
         }
 
+    }
+
+#pragma warning disable CA2211
+
+    public static class HapClientConst
+    {
+        public static int ReadBufferLength = 1024;
+        public static int EventBufferLength = 1024;
+        public static int WriteBufferBytesPerCharacteristic = 128;
     }
 }
