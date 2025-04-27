@@ -184,30 +184,16 @@ namespace HomeKit
         {
             var aid = 1;
             var iid = 1;
-
             foreach (var accessory in Accessories)
             {
                 accessory.Aid = aid++;
-
                 foreach (var service in accessory.Services)
                 {
                     service.Iid = iid++;
-
                     foreach (var characteristic in service.Characteristics)
                     {
-                        //var iidbf = characteristic.GetType().GetField("<Iid>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
-                        //iidbf!.SetValue(characteristic, iid++);
                         characteristic.Iid = iid++;
-
-                        //var aidbf = characteristic.GetType().GetField("<Aid>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
-                        //aidbf!.SetValue(characteristic, accessory.Aid);
-
                         characteristic.Aid = accessory.Aid;
-
-                        ;
-
-                        //characteristic.Iid = iid++;
-                        //characteristic.Aid = accessory.Aid;
                     }
                 }
             }
