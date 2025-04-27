@@ -1,14 +1,23 @@
-﻿using System.Text.Json.Serialization;
+using System;
+using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace HomeKit
 {
+    public delegate void ValueChangeCallback(Characteristic characteristic, object value);
+    public delegate void ValueChangeCallback<T>(Characteristic<T> characteristic, T value);
+
     public abstract class Characteristic<T>(string type, string[] perms, string format) : Characteristic(type, perms, format)
     {
-        private T? m_Value;
+        private readonly HashSet<ValueChangeCallback> m_Subscriptions = new();
+        private readonly HashSet<ValueChangeCallback<T>> m_SubscriptionsGeneric = new();
 
+        private T? m_Value;
         public T? Value { get => m_Value; set => SetValue(value); }
 
+        [Obsolete("Use ValueChangeCallback with Subscribe method")]
         public delegate void ValueChange(Characteristic<T> sender, T newValue);
+        [Obsolete("Use .Subscribe(YourMethod) OR .Subscribe((sender, newValue) => { ... }) instead of .Changed += ...")]
         public event ValueChange? Changed;
 
         protected virtual void SetValue(T? value)
@@ -23,12 +32,42 @@ namespace HomeKit
             if (m_Value is not null)
             {
                 Changed?.Invoke(this, m_Value);
+
+                foreach (var sub in m_Subscriptions)
+                {
+                    sub.Invoke(this, m_Value);
+                }
+
+                foreach (var sub in m_SubscriptionsGeneric)
+                {
+                    sub.Invoke(this, m_Value);
+                }
             }
         }
 
-        public override object? GetObjectValue()
+        internal override object? ValueToObject()
         {
             return m_Value;
+        }
+
+        public override void Subscribe(ValueChangeCallback callback)
+        {
+            m_Subscriptions.Add(callback);
+        }
+
+        public override void Unsubscribe(ValueChangeCallback callback)
+        {
+            m_Subscriptions.Remove(callback);
+        }
+
+        public void Subscribe(ValueChangeCallback<T> callback)
+        {
+            m_SubscriptionsGeneric.Add(callback);
+        }
+
+        public void Unsubscribe(ValueChangeCallback<T> callback)
+        {
+            m_SubscriptionsGeneric.Remove(callback);
         }
     }
 
@@ -41,6 +80,9 @@ namespace HomeKit
         public string[] Perms { get; } = perms;
         public string Format { get; } = format;
 
-        public abstract object? GetObjectValue();
+        internal abstract object? ValueToObject();
+        internal abstract void ValueFromObject(object? value);
+        public abstract void Subscribe(ValueChangeCallback callback);
+        public abstract void Unsubscribe(ValueChangeCallback callback);
     }
 }

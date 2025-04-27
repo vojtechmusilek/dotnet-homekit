@@ -11,7 +11,7 @@ namespace HomeKit.Characteristics
         public virtual float? MinValue { get; }
         public virtual float? MinStep { get; }
 
-        protected override void SetValue(float value)
+        protected internal override void SetValue(float value)
         {
             if (ValidValues is not null)
             {
@@ -37,6 +37,11 @@ namespace HomeKit.Characteristics
             }
 
             base.SetValue(value);
+        }
+
+        internal override void ValueFromObject(object? value)
+        {
+            Value = Convert.ToSingle(value);
         }
     }
 }

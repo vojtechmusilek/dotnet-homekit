@@ -878,7 +878,7 @@ namespace HomeKit.Hap
                         {
                             Aid = aid,
                             Iid = iid,
-                            Value = characteristic.GetObjectValue(),
+                            Value = characteristic.ValueToObject(),
                         };
                     }
                 }
