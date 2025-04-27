@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -33,6 +33,7 @@ namespace HomeKit
         private readonly ushort m_Port;
         private readonly string m_PinCode;
         private readonly string m_SetupId;
+        private readonly string m_SetupHash;
         private readonly string m_MacAddress;
         private readonly uint m_BroadcastIntervalSeconds;
 
@@ -48,9 +49,6 @@ namespace HomeKit
 
         public HashSet<Accessory> Accessories => m_Accessories;
 
-        [JsonIgnore]
-        public bool Discoverable { get; set; } = true;
-
         public AccessoryServer(AccessoryServerOptions options)
         {
             m_IpAddress = Utils.GetServerIpAddress(options.IpAddress ?? "");
@@ -59,7 +57,8 @@ namespace HomeKit
             m_PinCode = options.PinCode ?? Utils.GeneratePinCode();
             m_MacAddress = options.MacAddress ?? Utils.GenerateMacAddress();
             m_SetupId = Utils.GenerateSetupId();
-            m_BroadcastIntervalSeconds = options.BroadcastIntervalSeconds ?? (options.Port.HasValue ? PacketRecord.ShortTtl : 1);
+            m_SetupHash = Utils.GenerateSetupHash(m_SetupId, m_MacAddress);
+            m_BroadcastIntervalSeconds = options.BroadcastIntervalSeconds ?? (options.Port.HasValue ? PacketRecord.ShortTtl : 3);
 
             m_LoggerFactory = options.LoggerFactory ?? NullLoggerFactory.Instance;
             m_Logger = m_LoggerFactory.CreateLogger<AccessoryServer>();
@@ -92,20 +91,25 @@ namespace HomeKit
             return CollectionsMarshal.AsSpan(m_State.PairedClients);
         }
 
-        public bool AcceptsClients()
+        /// <returns>true if added, false if not added because of max limit</returns>
+        public bool TryAddPairedClient(PairedClient pairedClient)
         {
-            return m_State.PairedClients.Count < m_MaxClients;
-        }
+            var existing = m_State.PairedClients.Find(x => x.Id == pairedClient.Id);
 
-        public void AddPairedClient(PairedClient pairedClient)
-        {
-            if (!AcceptsClients())
+            var countAfterAdd = m_State.PairedClients.Count + (existing == null ? 1 : 0);
+            if (countAfterAdd > m_MaxClients)
             {
-                throw new InvalidOperationException("Client capacity reached");
+                return false;
+            }
+
+            if (existing is not null)
+            {
+                m_State.PairedClients.Remove(existing);
             }
 
             m_State.PairedClients.Add(pairedClient);
             m_State.Save(m_StateFilePath);
+            return true;
         }
 
         public void RemovePairedClient(Guid id)
@@ -119,9 +123,17 @@ namespace HomeKit
             m_State.Save(m_StateFilePath);
         }
 
-        public bool IsPaired()
+        public bool HasNotBeenPaired()
         {
-            return m_State.PairedClients.Count > 0;
+            return m_State.PairedClients.Count == 0;
+            // the following doesnt really work when removing accesory and adding it right back:
+            // check if we have space for another pairing and if we do then act like nothing has been paired
+            // return !HasReachedMaximumPairings();
+        }
+
+        public bool HasReachedMaximumPairings()
+        {
+            return m_State.PairedClients.Count >= m_MaxClients;
         }
 
         public ReadOnlySpan<byte> GetLtSk()
@@ -364,18 +376,15 @@ namespace HomeKit
                             KeyValuePairs = new Dictionary<string, string>()
                             {
                                 /// 6.4
-                                { "md", m_Name },
-                                { "id", m_MacAddress },
-                                { "ci", m_Category.GetHashCode().ToString() },
-                                { "sh", Utils.GenerateSetupHash(m_SetupId, m_MacAddress) },
-                                { "s#", IsPaired() ? "2" : "1" },
-                                { "sf", Discoverable ? "1" : "0" },
-
-                                // todo store config hash in state for checking
-                                { "c#", "2" }, // todo config num, increment when accessory changes
-                                
-                                { "pv", "1.1" },
-                                { "ff", "0" },
+                                { "c#", "3" }, // Current configuration number - todo store config hash in state for checking, increment when accessory changes
+                                { "ff", HasReachedMaximumPairings() ? "4" : "0" }, // Pairing feature flags
+                                { "id", m_MacAddress }, // Device ID
+                                { "md", m_Name }, // Model name
+                                { "pv", "1.1" }, // Protocol version string
+                                { "s#", "1" }, // Current state number (must be 1)
+                                { "sf", HasNotBeenPaired() ? "1" : "0" }, // Status flags
+                                { "ci", m_Category.GetHashCode().ToString() }, // Category identifier
+                                { "sh", m_SetupHash }, // Setup hash
                             }
                         }
                     },

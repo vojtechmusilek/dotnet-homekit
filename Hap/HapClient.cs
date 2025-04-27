@@ -204,7 +204,8 @@ namespace HomeKit.Hap
             m_Logger.LogInformation("Pair setup M1->M2");
 
             /// 5.6.2 - 1
-            if (m_AccessoryServer.IsPaired())
+            /// doc says if its already paired but if more pairings is supported then continute
+            if (m_AccessoryServer.HasReachedMaximumPairings())
             {
                 return WriteError(tx, TlvError.Unavailable, 2);
             }
@@ -321,17 +322,16 @@ namespace HomeKit.Hap
 
             /// 5.6.6.1 - 6
             var id = Utils.ReadUtf8Identifier(iosDevicePairingId);
-            if (!m_AccessoryServer.AcceptsClients())
-            {
-                return WriteError(tx, TlvError.MaxPeers, 6);
-            }
-
-            m_AccessoryServer.AddPairedClient(new PairedClient()
+            var pairedClient = new PairedClient()
             {
                 Id = id,
                 ClientLtPk = iosDeviceLtPk.ToArray(),
                 ClientPermissions = 1
-            });
+            };
+            if (!m_AccessoryServer.TryAddPairedClient(pairedClient))
+            {
+                return WriteError(tx, TlvError.MaxPeers, 6);
+            }
 
             m_Logger.LogInformation("Pairing added {id}", id);
 
@@ -556,17 +556,16 @@ namespace HomeKit.Hap
             }
             else
             {
-                if (!m_AccessoryServer.AcceptsClients())
-                {
-                    return WriteError(tx, TlvError.MaxPeers, 2);
-                }
-
-                m_AccessoryServer.AddPairedClient(new PairedClient()
+                pairedClient = new PairedClient()
                 {
                     Id = id,
                     ClientLtPk = additionalControllerLtPk.ToArray(),
                     ClientPermissions = additionalControllerPermissions.Value
-                });
+                };
+                if (!m_AccessoryServer.TryAddPairedClient(pairedClient))
+                {
+                    return WriteError(tx, TlvError.MaxPeers, 2);
+                }
 
                 m_Logger.LogInformation("Added {id}", id);
             }
