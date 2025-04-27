@@ -260,7 +260,11 @@ namespace HomeKit.Hap
             Span<byte> passwordProof = stackalloc byte[64];
             TlvReader.ReadValue(TlvType.Proof, rx, passwordProof);
 
-            var accessoryProof = m_SrpServer.Respond(passwordProof.ToArray());
+            Span<byte> accessoryProof = stackalloc byte[64];
+            if (!m_SrpServer.TryRespond(passwordProof, accessoryProof))
+            {
+                return WriteError(tx, TlvError.Authentication, 4);
+            }
 
             /// 5.6.4 - 4, 5
             Span<byte> content = stackalloc byte[69];

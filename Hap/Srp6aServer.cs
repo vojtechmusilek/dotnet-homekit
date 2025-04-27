@@ -80,7 +80,7 @@ namespace HomeKit.Hap
             m_SharedSecret_K = SHA512.HashData(sharedSecretUnhashed.ToByteArray(true, true));
         }
 
-        public byte[] Respond(byte[] M)
+        public bool TryRespond(ReadOnlySpan<byte> M, Span<byte> response)
         {
             if (m_Username_I is null) throw new Exception("wrong order");
             if (m_Salt_s is null) throw new Exception("wrong order");
@@ -92,12 +92,13 @@ namespace HomeKit.Hap
 
             if (Utils.SpansEqual(calcM, M))
             {
-                var mBytes = Utils.MergeBytes(m_ClientPublicEphemeral_A, M, m_SharedSecret_K);
-                return SHA512.HashData(mBytes);
+                var mBytes = Utils.MergeBytes(m_ClientPublicEphemeral_A, M.ToArray(), m_SharedSecret_K);
+                SHA512.HashData(mBytes, response);
+                return true;
             }
             else
             {
-                throw new Exception();
+                return false;
             }
         }
 
