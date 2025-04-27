@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using HomeKit.Resources;
@@ -11,6 +12,7 @@ namespace HomeKit
     {
         private readonly string m_Name;
         private readonly Category m_Category;
+        private readonly AccessoryInformationService m_AccessoryInformationService;
 
         [JsonInclude]
         internal int Aid { get; set; }
@@ -20,8 +22,7 @@ namespace HomeKit
         {
             m_Name = name;
             m_Category = category;
-
-            AddAccessoryInformationService();
+            m_AccessoryInformationService = AddAccessoryInformationService();
         }
 
         public TService AddService<TService>() where TService : Service
@@ -29,6 +30,11 @@ namespace HomeKit
             var service = Activator.CreateInstance<TService>();
             Services.Add(service);
             return service;
+        }
+
+        public AccessoryInformationService GetAccessoryInformation()
+        {
+            return m_AccessoryInformationService;
         }
 
         protected virtual AccessoryServer PrepareServer(AccessoryServerOptions options)
@@ -49,7 +55,7 @@ namespace HomeKit
             return server;
         }
 
-        private void AddAccessoryInformationService()
+        private AccessoryInformationService AddAccessoryInformationService()
         {
             var info = new AccessoryInformationService();
 
@@ -60,6 +66,7 @@ namespace HomeKit
             info.FirmwareRevision.Value = "1.0";
 
             Services.Add(info);
+            return info;
         }
     }
 }
