@@ -213,17 +213,17 @@ namespace HomeKit
 
         private void CheckVersion()
         {
-            // for now just multiply Aid and Iid, that should be unique enough
-            ulong currentHash = 1;
+            // for now just add Aid and Iid, that should be unique enough
+            uint currentHash = 0;
             foreach (var accessory in Accessories)
             {
-                currentHash *= (ulong)accessory.Aid;
+                currentHash += (uint)accessory.Aid;
                 foreach (var service in accessory.Services)
                 {
-                    currentHash *= (ulong)service.Iid;
+                    currentHash += (uint)service.Iid;
                     foreach (var characteristic in service.Characteristics)
                     {
-                        currentHash *= (ulong)characteristic.Iid;
+                        currentHash += (uint)characteristic.Iid;
                     }
                 }
             }
