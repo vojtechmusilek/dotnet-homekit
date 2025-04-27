@@ -6,7 +6,6 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using HomeKit.Hap;
@@ -75,7 +74,7 @@ namespace HomeKit
             m_State = ServerState.Load(m_StateFilePath, out var newState);
             if (newState)
             {
-                m_Logger.LogInformation("State was not found, creating new state");
+                m_Logger.LogInformation("State was not found, created new state");
             }
 
             m_Logger.LogTrace("State has {Count} clients", m_State.PairedClients.Count);
@@ -174,6 +173,7 @@ namespace HomeKit
             m_StoppingToken = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
             AssignIds();
+            CheckVersion();
             PrintSetupMessage();
 
             await SetupHap(m_StoppingToken.Token);
@@ -208,6 +208,36 @@ namespace HomeKit
                         characteristic.Aid = accessory.Aid;
                     }
                 }
+            }
+        }
+
+        private void CheckVersion()
+        {
+            // for now just multiply Aid and Iid, that should be unique enough
+            ulong currentHash = 1;
+            foreach (var accessory in Accessories)
+            {
+                currentHash *= (ulong)accessory.Aid;
+                foreach (var service in accessory.Services)
+                {
+                    currentHash *= (ulong)service.Iid;
+                    foreach (var characteristic in service.Characteristics)
+                    {
+                        currentHash *= (ulong)characteristic.Iid;
+                    }
+                }
+            }
+
+            if (currentHash == m_State.AccessoryHash)
+            {
+                m_Logger.LogInformation("Accessory hash is same, using version {version}", m_State.AccessoryVersion);
+            }
+            else
+            {
+                m_State.AccessoryVersion += 1;
+                m_State.AccessoryHash = currentHash;
+                m_State.Save(m_StateFilePath);
+                m_Logger.LogWarning("Accessory hash has changed, using new version {version}", m_State.AccessoryVersion);
             }
         }
 
@@ -376,7 +406,7 @@ namespace HomeKit
                             KeyValuePairs = new Dictionary<string, string>()
                             {
                                 /// 6.4
-                                { "c#", "3" }, // Current configuration number - todo store config hash in state for checking, increment when accessory changes
+                                { "c#", m_State.AccessoryVersion.ToString() }, // Current configuration number
                                 { "ff", HasReachedMaximumPairings() ? "4" : "0" }, // Pairing feature flags
                                 { "id", m_MacAddress }, // Device ID
                                 { "md", m_Name }, // Model name

@@ -16,6 +16,8 @@ namespace HomeKit
         public byte[] ServerLtSk { get; init; }
         public byte[] ServerLtPk { get; init; }
         public List<PairedClient> PairedClients { get; init; }
+        public ulong AccessoryHash { get; set; }
+        public ushort AccessoryVersion { get; set; } = 1;
 
         public ServerState()
         {
