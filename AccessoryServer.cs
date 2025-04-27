@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -267,7 +267,7 @@ namespace HomeKit
             var interval = TimeSpan.FromSeconds(m_BroadcastIntervalSeconds);
             var mdnsClient = new MdnsClient(networkInterface, interval, m_LoggerFactory.CreateLogger<MdnsClient>());
             mdnsClient.OnPacketReceived += MdnsClient_OnPacketReceived;
-            mdnsClient.BroadcastPeriodically(CreateBroadcastPacket());
+            mdnsClient.BroadcastPeriodically(CreateBroadcastPacket);
             m_MdnsClients.Add(mdnsClient);
             return mdnsClient;
         }

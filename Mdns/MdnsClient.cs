@@ -23,7 +23,7 @@ namespace HomeKit.Mdns
         private Task m_BroadcasterTask = null!;
 
         private readonly PeriodicTimer m_BroadcasterTimer;
-        private readonly List<Packet> m_BroadcasterPackets = new();
+        private readonly List<Func<Packet>> m_BroadcasterPacketGetters = new();
 
         public event Action<MdnsClient, Packet>? OnPacketReceived;
 
@@ -98,9 +98,9 @@ namespace HomeKit.Mdns
         {
             while (await m_BroadcasterTimer.WaitForNextTickAsync(stoppingToken))
             {
-                for (int i = 0; i < m_BroadcasterPackets.Count; i++)
+                for (int i = 0; i < m_BroadcasterPacketGetters.Count; i++)
                 {
-                    Broadcast(m_BroadcasterPackets[i]);
+                    Broadcast(m_BroadcasterPacketGetters[i].Invoke());
                 }
             }
         }
@@ -113,10 +113,10 @@ namespace HomeKit.Mdns
             m_Logger.LogInformation("Broadcasted {length} bytes", length);
         }
 
-        public void BroadcastPeriodically(Packet packet)
+        public void BroadcastPeriodically(Func<Packet> packetGetter)
         {
-            m_BroadcasterPackets.Add(packet);
-            Broadcast(packet);
+            m_BroadcasterPacketGetters.Add(packetGetter);
+            Broadcast(packetGetter.Invoke());
         }
     }
 }
