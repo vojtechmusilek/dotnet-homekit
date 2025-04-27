@@ -107,14 +107,13 @@ namespace HomeKit.Hap
             }
 
             m_Logger.LogWarning("Closing HAP client {remote}", m_Socket.RemoteEndPoint);
-            m_TcpClient.Close();
 
             foreach (var characteristic in m_SubscribedCharacteristics)
             {
-                // todo
-                //characteristic.OnValueChange -= OnSubscriptionValueChange;
+                Unsubscribe(characteristic);
             }
 
+            m_TcpClient.Close();
             m_AccessoryServer.RemoveClientReceiver(this);
         }
 
