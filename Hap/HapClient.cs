@@ -168,7 +168,7 @@ namespace HomeKit.Hap
 
             var tx = m_WriteBuffer.AsSpan();
 
-            m_Logger.LogInformation("{remote} -> {method}, {path} {query}", m_RemoteIp, method, path, query);
+            m_Logger.LogInformation("{remote} -> {method} {path} {query}", m_RemoteIp, method, path, query);
 
             var txLength = (method, path) switch
             {
@@ -797,7 +797,7 @@ namespace HomeKit.Hap
         {
             if (m_EventBlockHashCode == sender.GetHashCode())
             {
-                m_Logger.LogTrace("Event skipped for {aid}.{iid}", sender.Aid, sender.Iid);
+                m_Logger.LogDebug("Event skipped for {aid}.{iid}", sender.Aid, sender.Iid);
                 return;
             }
 
@@ -829,7 +829,14 @@ namespace HomeKit.Hap
             length += HttpWriter.WriteHapEvent(buffer[length..]);
             length += HttpWriter.WriteContent(buffer[length..], jsonbytes);
 
-            m_Logger.LogDebug("EVENT:\n{data}", Encoding.UTF8.GetString(buffer[..length]));
+            if (m_Logger.IsEnabled(LogLevel.Debug))
+            {
+                m_Logger.LogDebug("{remote} <- EVENT {aid}.{iid} {newValue}\n{data}", m_RemoteIp, sender.Aid, sender.Iid, newValue, Encoding.UTF8.GetString(buffer[..length]));
+            }
+            else
+            {
+                m_Logger.LogInformation("{remote} <- EVENT {aid}.{iid} {newValue}", m_RemoteIp, sender.Aid, sender.Iid, newValue);
+            }
 
             length = m_Aead.Encrypt(buffer[..length], buffer);
 
