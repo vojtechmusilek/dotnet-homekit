@@ -24,7 +24,7 @@ namespace HomeKit
         private readonly ILoggerFactory m_LoggerFactory;
         private readonly ILogger m_Logger;
 
-        private readonly HashSet<HapClient> m_HapClients = new();
+        private readonly HashSet<HapSession> m_HapSessions = new();
         private readonly HashSet<Accessory> m_Accessories = new();
         private readonly HashSet<MdnsClient> m_MdnsClients = new();
 
@@ -43,7 +43,7 @@ namespace HomeKit
         private readonly Category m_Category;
         private readonly ushort m_MaxClients;
 
-        private Task? m_ClientReceiverTask;
+        private Task? m_SessionCreatorTask;
         private CancellationTokenSource m_StoppingToken = null!;
 
         public HashSet<Accessory> Accessories => m_Accessories;
@@ -184,11 +184,11 @@ namespace HomeKit
         {
             await m_StoppingToken.CancelAsync();
 
-            await Task.WhenAll(m_HapClients.Select(x => x.StopAsync()));
+            await Task.WhenAll(m_HapSessions.Select(x => x.StopAsync()));
 
-            if (m_ClientReceiverTask is not null)
+            if (m_SessionCreatorTask is not null)
             {
-                await m_ClientReceiverTask;
+                await m_SessionCreatorTask;
             }
         }
 
@@ -243,7 +243,7 @@ namespace HomeKit
 
         private Task SetupHap(CancellationToken stoppingToken)
         {
-            m_ClientReceiverTask = ClientReceiverTask(stoppingToken);
+            m_SessionCreatorTask = SessionCreatorTask(stoppingToken);
             return Task.CompletedTask;
         }
 
@@ -300,7 +300,7 @@ namespace HomeKit
             return mdnsClient;
         }
 
-        private async Task ClientReceiverTask(CancellationToken stoppingToken)
+        private async Task SessionCreatorTask(CancellationToken stoppingToken)
         {
             // https://stackoverflow.com/a/67442253/7838578
             var listener = new TcpListener(IPAddress.Any, m_Port);
@@ -309,19 +309,19 @@ namespace HomeKit
             while (!stoppingToken.IsCancellationRequested)
             {
                 var client = await listener.AcceptTcpClientAsync(stoppingToken);
+                var session = new HapSession(this, client, m_LoggerFactory.CreateLogger<HapSession>());
+                
+                m_HapSessions.Add(session);
+                m_Logger.LogInformation("Created session for {remote}", session.Remote);
 
-                m_Logger.LogInformation("Accepted new TCP client {remote}", client.Client.RemoteEndPoint);
-
-                var hapClient = new HapClient(this, client, m_LoggerFactory.CreateLogger<HapClient>());
-                m_HapClients.Add(hapClient);
-
-                await hapClient.StartAsync(stoppingToken);
+                await session.StartAsync(stoppingToken);
             }
         }
 
-        internal void RemoveClientReceiver(HapClient client)
+        internal void RemoveSession(HapSession session)
         {
-            m_HapClients.Remove(client);
+            m_HapSessions.Remove(session);
+            m_Logger.LogInformation("Removed session for {remote}", session.Remote);
         }
 
         private void MdnsClient_OnPacketReceived(MdnsClient sender, Packet packet)
