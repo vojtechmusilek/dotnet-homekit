@@ -18,7 +18,6 @@ namespace HomeKit.Hap
     internal class HapClient
     {
         private readonly ILogger m_Logger;
-        private readonly Socket m_Socket;
         private readonly NetworkStream m_TcpStream;
         private readonly TcpClient m_TcpClient;
 
@@ -50,12 +49,10 @@ namespace HomeKit.Hap
             m_TcpClient = tcpClient;
             m_Logger = logger;
 
-            m_Socket = tcpClient.Client;
-            m_TcpStream = tcpClient.GetStream();
-
             m_Aead = new(logger);
 
-            m_RemoteIp = m_Socket.RemoteEndPoint?.ToString() ?? "unknown";
+            m_TcpStream = tcpClient.GetStream();
+            m_RemoteIp = tcpClient.Client.RemoteEndPoint?.ToString() ?? "unknown";
 
             var characteristicCount = server.Accessories.DefaultIfEmpty().Sum(x => x?.Services.DefaultIfEmpty().Sum(y => y?.Characteristics.Count ?? 0) ?? 0);
             m_WriteBuffer = new byte[characteristicCount * HapClientConst.WriteBufferBytesPerCharacteristic];
@@ -79,7 +76,7 @@ namespace HomeKit.Hap
             while (!stoppingToken.IsCancellationRequested && m_TcpClient.Connected)
             {
                 var requestLength = await m_TcpStream.ReadAtLeastAsync(m_ReadBuffer, 1, false, stoppingToken);
-                m_Logger.LogTrace("TCP Rx {length}", requestLength);
+                m_Logger.LogTrace("{remote} -> TCP Rx {length}", m_RemoteIp, requestLength);
 
                 if (requestLength == 0)
                 {
@@ -99,16 +96,16 @@ namespace HomeKit.Hap
                         throw new Exception("Response length 0");
                     }
 
-                    m_Logger.LogTrace("TCP Tx {length}", responseLength);
+                    m_Logger.LogTrace("{remote} <- TCP Tx {length}", m_RemoteIp, responseLength);
                     await m_TcpStream.WriteAsync(m_WriteBuffer.AsMemory(0, responseLength), CancellationToken.None);
                 }
                 catch (Exception ex)
                 {
-                    m_Logger.LogError(ex, "Failed to process request");
+                    m_Logger.LogError(ex, "{remote} -- Failed to process request", m_RemoteIp);
                 }
             }
 
-            m_Logger.LogWarning("Closing HAP client {remote}", m_Socket.RemoteEndPoint);
+            m_Logger.LogWarning("{remote} -- Closing HAP client", m_RemoteIp);
 
             foreach (var characteristic in m_SubscribedCharacteristics)
             {
@@ -123,7 +120,10 @@ namespace HomeKit.Hap
         {
             rxLength = m_Aead.Decrypt(m_ReadBuffer.AsSpan(0, rxLength), m_ReadBuffer.AsSpan());
 
-            m_Logger.LogDebug("REQ:\n{data}", Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, rxLength)));
+            if (m_Logger.IsEnabled(LogLevel.Debug))
+            {
+                m_Logger.LogDebug("{remote} -> REQ:\n{data}", m_RemoteIp, Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, rxLength)));
+            }
 
             // todo cleanup
             var plain = Encoding.UTF8.GetString(m_ReadBuffer.AsSpan(0, rxLength));
@@ -168,7 +168,7 @@ namespace HomeKit.Hap
 
             var tx = m_WriteBuffer.AsSpan();
 
-            m_Logger.LogInformation("{remote} -> {method} {path} {query}", m_RemoteIp, method, path, query);
+            m_Logger.LogDebug("{remote} -> {method} {path} {query}", m_RemoteIp, method, path, query);
 
             var txLength = (method, path) switch
             {
@@ -181,11 +181,12 @@ namespace HomeKit.Hap
                 _ => throw new NotImplementedException($"Method {method}, {path}, {query}"),
             };
 
-            m_Logger.LogDebug("RES:\n{data}", Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, txLength)));
+            if (m_Logger.IsEnabled(LogLevel.Debug))
+            {
+                m_Logger.LogDebug("{remote} <- RES:\n{data}", m_RemoteIp, Encoding.UTF8.GetString(m_WriteBuffer.AsSpan(0, txLength)));
+            }
 
             txLength = m_Aead.Encrypt(m_WriteBuffer.AsSpan(0, txLength), m_WriteBuffer.AsSpan());
-
-
             return txLength;
         }
 
@@ -203,7 +204,7 @@ namespace HomeKit.Hap
 
         private int PairSetup_M1(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
-            m_Logger.LogInformation("Pair setup M1->M2");
+            m_Logger.LogInformation("{remote} -> Pair setup M1->M2", m_RemoteIp);
 
             /// 5.6.2 - 1
             /// doc says if its already paired but if more pairings is supported then continute
@@ -249,7 +250,7 @@ namespace HomeKit.Hap
 
         private int PairSetup_M3(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
-            m_Logger.LogInformation("Pair setup M3->M4");
+            m_Logger.LogInformation("{remote} -> Pair setup M3->M4", m_RemoteIp);
 
             /// 5.6.4 - 1
             Span<byte> publicKey = stackalloc byte[384];
@@ -279,7 +280,7 @@ namespace HomeKit.Hap
 
         private int PairSetup_M5(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
-            m_Logger.LogInformation("Pair setup M5->M6");
+            m_Logger.LogInformation("{remote} -> Pair setup M5->M6", m_RemoteIp);
 
             /// M5 Verification
 
@@ -339,7 +340,7 @@ namespace HomeKit.Hap
                 return WriteError(tx, TlvError.MaxPeers, 6);
             }
 
-            m_Logger.LogInformation("Pairing added {id}", id);
+            m_Logger.LogInformation("{remote} -- Pairing added {id}", m_RemoteIp, id);
 
             /// M6 Response Generation
 
@@ -383,7 +384,7 @@ namespace HomeKit.Hap
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.State, 6);
             contentPosition += TlvWriter.WriteTlv(content[contentPosition..], TlvType.EncryptedData, encryptedDataWithTag_tx);
 
-            m_Logger.LogInformation("Pairing setup complete {id}", id);
+            m_Logger.LogInformation("{remote} <- Pairing setup complete {id}", m_RemoteIp, id);
 
             return WritePairingContent(tx, content);
         }
@@ -401,7 +402,7 @@ namespace HomeKit.Hap
 
         private int PairVerify_M1(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
-            m_Logger.LogInformation("Pair verify M1->M2");
+            m_Logger.LogInformation("{remote} -> Pair verify M1->M2", m_RemoteIp);
 
             /// 5.7.2 - 1
             var accessoryCurve = X25519KeyAgreement.GenerateKeyPair(); // todo 32, 32
@@ -452,7 +453,7 @@ namespace HomeKit.Hap
 
         private int PairVerify_M3(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
-            m_Logger.LogInformation("Pair verify M3->M4");
+            m_Logger.LogInformation("{remote} -> Pair verify M3->M4", m_RemoteIp);
 
             /// 5.7.4 - 1, 2
             Span<byte> encryptedDataWithTag = stackalloc byte[120];
@@ -466,7 +467,7 @@ namespace HomeKit.Hap
 
             if (!decrypted)
             {
-                m_Logger.LogError("Failed to decrypt data");
+                m_Logger.LogError("{remote} <- Failed to decrypt data", m_RemoteIp);
                 return WriteError(tx, TlvError.Authentication, 4);
             }
 
@@ -479,7 +480,7 @@ namespace HomeKit.Hap
             var pairedClient = m_AccessoryServer.GetPairedClient(iosDevicePairingGuid);
             if (pairedClient is null)
             {
-                m_Logger.LogError("Paired client {ClientGuid} was not found", iosDevicePairingGuid);
+                m_Logger.LogError("{remote} <- Paired client {ClientGuid} was not found", m_RemoteIp, iosDevicePairingGuid);
                 return WriteError(tx, TlvError.Authentication, 4);
             }
 
@@ -495,7 +496,7 @@ namespace HomeKit.Hap
             bool valid = Signer.Validate(iosDeviceSignature, iosDeviceInfo, pairedClient.ClientLtPk);
             if (!valid)
             {
-                m_Logger.LogError("Failed to validate signature");
+                m_Logger.LogError("{remote} <- Failed to validate signature", m_RemoteIp);
                 return WriteError(tx, TlvError.Authentication, 4);
             }
 
@@ -503,7 +504,7 @@ namespace HomeKit.Hap
             m_Aead.Enable(m_SharedSecret);
             m_PairedClient = pairedClient;
 
-            m_Logger.LogInformation("Pairing verified {id}", iosDevicePairingGuid);
+            m_Logger.LogInformation("{remote} <- Pairing verified {id}", m_RemoteIp, iosDevicePairingGuid);
 
             return WritePairingState(tx, 4);
         }
@@ -527,7 +528,7 @@ namespace HomeKit.Hap
 
         private int AddPairing(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
-            m_Logger.LogInformation("Add pairing");
+            m_Logger.LogInformation("{remote} -> Add pairing", m_RemoteIp);
 
             /// 5.10.2 - 1, 2
             if (m_PairedClient is null || m_PairedClient.ClientPermissions != 1)
@@ -553,7 +554,7 @@ namespace HomeKit.Hap
                 if (pairedClient.ClientLtPk.AsSpan().SequenceEqual(additionalControllerLtPk))
                 {
                     pairedClient.ClientPermissions = additionalControllerPermissions.Value;
-                    m_Logger.LogInformation("Updated {id}", id);
+                    m_Logger.LogInformation("{remote} <- Updated {id}", m_RemoteIp, id);
                 }
                 else
                 {
@@ -573,7 +574,7 @@ namespace HomeKit.Hap
                     return WriteError(tx, TlvError.MaxPeers, 2);
                 }
 
-                m_Logger.LogInformation("Added {id}", id);
+                m_Logger.LogInformation("{remote} <- Added {id}", m_RemoteIp, id);
             }
 
             /// 5.10.2 - 5,6
@@ -582,7 +583,7 @@ namespace HomeKit.Hap
 
         private int RemovePairing(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
-            m_Logger.LogInformation("Remove pairing");
+            m_Logger.LogInformation("{remote} -> Remove pairing", m_RemoteIp);
 
             /// 5.11.2 - 1, 2
             if (m_PairedClient is null || m_PairedClient.ClientPermissions != 1)
@@ -596,7 +597,7 @@ namespace HomeKit.Hap
             var id = Utils.ReadUtf8Identifier(removedControllerPairingIdentifier);
 
             m_AccessoryServer.RemovePairedClient(id);
-            m_Logger.LogInformation("Removed {id}", id);
+            m_Logger.LogInformation("{remote} <- Removed {id}", m_RemoteIp, id);
 
             /// 5.11.2 - 6, 7
             if (m_PairedClient.Id == id)
@@ -610,7 +611,7 @@ namespace HomeKit.Hap
 
         private int ListPairings(ReadOnlySpan<byte> rx, Span<byte> tx)
         {
-            m_Logger.LogInformation("List pairings");
+            m_Logger.LogInformation("{remote} -> List pairings", m_RemoteIp);
 
             /// 5.12.2 - 1, 2
             if (m_PairedClient is null || m_PairedClient.ClientPermissions != 1)
@@ -692,27 +693,27 @@ namespace HomeKit.Hap
         {
             characteristic.Unsubscribe(OnSubscriptionValueChange);
             m_SubscribedCharacteristics.Remove(characteristic);
-            m_Logger.LogInformation("Subscription removed for {aid}.{iid}", characteristic.Aid, characteristic.Iid);
+            m_Logger.LogInformation("{remote} -> Subscription removed for {aid}.{iid}", m_RemoteIp, characteristic.Aid, characteristic.Iid);
         }
 
         private void Subscribe(Characteristic characteristic)
         {
             characteristic.Subscribe(OnSubscriptionValueChange);
             m_SubscribedCharacteristics.Add(characteristic);
-            m_Logger.LogInformation("Subscription added for {aid}.{iid}", characteristic.Aid, characteristic.Iid);
+            m_Logger.LogInformation("{remote} -> Subscription added for {aid}.{iid}", m_RemoteIp, characteristic.Aid, characteristic.Iid);
         }
 
         private void OnSubscriptionValueChange(Characteristic sender, object newValue)
         {
             if (m_EventBlockHashCode == sender.GetHashCode())
             {
-                m_Logger.LogDebug("Event skipped for {aid}.{iid}", sender.Aid, sender.Iid);
+                m_Logger.LogDebug("{remote} -- Event skipped for {aid}.{iid}", m_RemoteIp, sender.Aid, sender.Iid);
                 return;
             }
 
             if (!m_TcpStream.CanWrite)
             {
-                m_Logger.LogError("Cannot write event for {aid}.{iid}", sender.Aid, sender.Iid);
+                m_Logger.LogError("{remote} <- Cannot write event for {aid}.{iid}", m_RemoteIp, sender.Aid, sender.Iid);
                 return;
             }
 
@@ -750,7 +751,7 @@ namespace HomeKit.Hap
             length = m_Aead.Encrypt(buffer[..length], buffer);
 
             m_TcpStream.Write(buffer[..length]);
-            m_Logger.LogTrace("TCP Tx {length} (EVENT)", length);
+            m_Logger.LogTrace("{remote} <- TCP Tx {length} (EVENT)", m_RemoteIp, length);
         }
 
         private int GetCharacteristics(Span<byte> tx, string query)
