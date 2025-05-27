@@ -60,6 +60,7 @@ namespace HomeKit.Hap
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
+            m_Logger.LogInformation("{remote} -- Session started", Remote);
             m_StoppingToken = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             m_ReceiverTask = ReceiverTask(m_StoppingToken.Token);
             return Task.CompletedTask;
@@ -69,51 +70,62 @@ namespace HomeKit.Hap
         {
             await m_StoppingToken.CancelAsync();
             await m_ReceiverTask;
+            m_Logger.LogInformation("{remote} -- Session stopped", Remote);
         }
 
         private async Task ReceiverTask(CancellationToken stoppingToken)
         {
-            while (!stoppingToken.IsCancellationRequested && m_TcpClient.Connected)
+            try
             {
-                var requestLength = await m_TcpStream.ReadAtLeastAsync(m_ReadBuffer, 1, false, stoppingToken);
-                m_Logger.LogTrace("{remote} -> TCP Rx {length}", Remote, requestLength);
-
-                if (requestLength == 0)
+                while (!stoppingToken.IsCancellationRequested && m_TcpClient.Connected)
                 {
-                    break;
-                }
+                    var requestLength = await m_TcpStream.ReadAtLeastAsync(m_ReadBuffer, 1, false, stoppingToken);
+                    m_Logger.LogTrace("{remote} -> TCP Rx {length}", Remote, requestLength);
 
-                if (requestLength == m_ReadBuffer.Length)
-                {
-                    throw new OverflowException("Read buffer overflow, increase HapClientConst.ReadBufferLength");
-                }
-
-                try
-                {
-                    int responseLength = ProcessRequest(requestLength);
-                    if (responseLength == 0)
+                    if (requestLength == 0)
                     {
-                        throw new Exception("Response length 0");
+                        break;
                     }
 
-                    m_Logger.LogTrace("{remote} <- TCP Tx {length}", Remote, responseLength);
-                    await m_TcpStream.WriteAsync(m_WriteBuffer.AsMemory(0, responseLength), CancellationToken.None);
-                }
-                catch (Exception ex)
-                {
-                    m_Logger.LogError(ex, "{remote} -- Failed to process request", Remote);
+                    if (requestLength == m_ReadBuffer.Length)
+                    {
+                        throw new OverflowException("Read buffer overflow, increase HapClientConst.ReadBufferLength");
+                    }
+
+                    try
+                    {
+                        int responseLength = ProcessRequest(requestLength);
+                        if (responseLength == 0)
+                        {
+                            throw new Exception("Response length 0");
+                        }
+
+                        m_Logger.LogTrace("{remote} <- TCP Tx {length}", Remote, responseLength);
+                        await m_TcpStream.WriteAsync(m_WriteBuffer.AsMemory(0, responseLength), CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        m_Logger.LogError(ex, "{remote} -- Failed to process request", Remote);
+                    }
                 }
             }
-
-            m_Logger.LogWarning("{remote} -- Closing HAP client", Remote);
-
-            foreach (var characteristic in m_SubscribedCharacteristics)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Unsubscribe(characteristic);
+                m_Logger.LogError(ex, "{remote} -- Session receiver exception", Remote);
             }
+            finally
+            {
+                m_Logger.LogInformation("{remote} -- Session closing", Remote);
 
-            m_TcpClient.Close();
-            m_AccessoryServer.RemoveSession(this);
+                foreach (var characteristic in m_SubscribedCharacteristics)
+                {
+                    Unsubscribe(characteristic);
+                }
+
+                m_TcpClient.Close();
+
+                m_Logger.LogInformation("{remote} -- Session closed", Remote);
+            }
         }
 
         private int ProcessRequest(int rxLength)
@@ -713,7 +725,13 @@ namespace HomeKit.Hap
 
             if (!m_TcpStream.CanWrite)
             {
-                m_Logger.LogError("{remote} <- Cannot write event for {aid}.{iid}", Remote, sender.Aid, sender.Iid);
+                m_Logger.LogError("{remote} <- Cannot write event for {aid}.{iid}, stream is read only", Remote, sender.Aid, sender.Iid);
+                return;
+            }
+
+            if (!m_TcpClient.Connected)
+            {
+                m_Logger.LogError("{remote} <- Cannot write event for {aid}.{iid}, client is not connected", Remote, sender.Aid, sender.Iid);
                 return;
             }
 

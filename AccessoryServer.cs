@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -24,7 +24,7 @@ namespace HomeKit
         private readonly ILoggerFactory m_LoggerFactory;
         private readonly ILogger m_Logger;
 
-        private readonly HashSet<HapSession> m_HapSessions = new();
+        private readonly HapSessionCollection m_HapSessions = new();
         private readonly HashSet<Accessory> m_Accessories = new();
         private readonly HashSet<MdnsClient> m_MdnsClients = new();
 
@@ -184,7 +184,7 @@ namespace HomeKit
         {
             await m_StoppingToken.CancelAsync();
 
-            await Task.WhenAll(m_HapSessions.Select(x => x.StopAsync()));
+            await m_HapSessions.StopAsync();
 
             if (m_SessionCreatorTask is not null)
             {
@@ -309,19 +309,16 @@ namespace HomeKit
             while (!stoppingToken.IsCancellationRequested)
             {
                 var client = await listener.AcceptTcpClientAsync(stoppingToken);
+                if (client.Client.RemoteEndPoint is not IPEndPoint ipEndPoint)
+                {
+                    continue;
+                }
+
                 var session = new HapSession(this, client, m_LoggerFactory.CreateLogger<HapSession>());
-                
-                m_HapSessions.Add(session);
-                m_Logger.LogInformation("Created session for {remote}", session.Remote);
+                m_Logger.LogInformation("Created new session for {remote}", session.Remote);
 
-                await session.StartAsync(stoppingToken);
+                await m_HapSessions.AddAndStart(session, ipEndPoint, stoppingToken);
             }
-        }
-
-        internal void RemoveSession(HapSession session)
-        {
-            m_HapSessions.Remove(session);
-            m_Logger.LogInformation("Removed session for {remote}", session.Remote);
         }
 
         private void MdnsClient_OnPacketReceived(MdnsClient sender, Packet packet)
