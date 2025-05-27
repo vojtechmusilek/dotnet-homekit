@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 
 namespace HomeKit
 {
@@ -35,12 +36,50 @@ namespace HomeKit
 
                 foreach (var sub in m_Subscriptions)
                 {
-                    sub.Invoke(this, m_Value);
+                    InvokeSafe(sub, m_Value);
                 }
 
                 foreach (var sub in m_SubscriptionsGeneric)
                 {
-                    sub.Invoke(this, m_Value);
+                    InvokeSafe(sub, m_Value);
+                }
+            }
+        }
+
+        private void InvokeSafe(ValueChangeCallback sub, object value)
+        {
+            try
+            {
+                sub.Invoke(this, value);
+            }
+            catch (Exception ex)
+            {
+                if (Logger is null)
+                {
+                    Console.WriteLine($"Subscription invoke failed: {ex.Message}\n{ex.StackTrace}");
+                }
+                else
+                {
+                    Logger.LogError(ex, "Subscription invoke failed");
+                }
+            }
+        }
+
+        private void InvokeSafe(ValueChangeCallback<T> sub, T value)
+        {
+            try
+            {
+                sub.Invoke(this, value);
+            }
+            catch (Exception ex)
+            {
+                if (Logger is null)
+                {
+                    Console.WriteLine($"Subscription invoke failed: {ex.Message}\n{ex.StackTrace}");
+                }
+                else
+                {
+                    Logger.LogError(ex, "Subscription invoke failed");
                 }
             }
         }
@@ -80,6 +119,7 @@ namespace HomeKit
         public string Type { get; } = type;
         public string[] Perms { get; } = perms;
         public string Format { get; } = format;
+        public ILogger? Logger { get; set; }
 
         internal abstract object? ValueToObject();
         internal abstract void ValueFromObject(object? value);

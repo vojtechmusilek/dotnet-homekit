@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -172,7 +172,7 @@ namespace HomeKit
 
             m_StoppingToken = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
-            AssignIds();
+            AssignIdsAndLogger();
             CheckVersion();
             PrintSetupMessage();
 
@@ -192,7 +192,7 @@ namespace HomeKit
             }
         }
 
-        private void AssignIds()
+        private void AssignIdsAndLogger()
         {
             var aid = 1;
             var iid = 1;
@@ -206,6 +206,8 @@ namespace HomeKit
                     {
                         characteristic.Iid = iid++;
                         characteristic.Aid = accessory.Aid;
+
+                        characteristic.Logger = m_Logger;
                     }
                 }
             }
