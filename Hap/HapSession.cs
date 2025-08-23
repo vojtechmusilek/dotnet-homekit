@@ -109,7 +109,11 @@ namespace HomeKit.Hap
                     }
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException)
+            {
+                m_Logger.LogInformation("{remote} -- Session receiver cancelled", Remote);
+            }
+            catch (Exception ex)
             {
                 m_Logger.LogError(ex, "{remote} -- Session receiver exception", Remote);
             }
