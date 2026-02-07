@@ -19,6 +19,8 @@ namespace HomeKit.Hap
         private bool m_RxEnabled = false;
         private bool m_TxEnabled = false;
 
+        public bool Encrypted => m_RxEnabled;
+
         public HapAead(ILogger logger)
         {
             m_Logger = logger;
