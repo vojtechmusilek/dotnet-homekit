@@ -75,9 +75,11 @@ namespace HomeKit.Hap
 
         private async Task ReceiverTask(CancellationToken stoppingToken)
         {
+            var closeRequested = false;
+
             try
             {
-                while (!stoppingToken.IsCancellationRequested && m_TcpClient.Connected)
+                while (!stoppingToken.IsCancellationRequested && m_TcpClient.Connected && !closeRequested)
                 {
                     var requestLength = await m_TcpStream.ReadAtLeastAsync(m_ReadBuffer, 1, false, stoppingToken);
                     m_Logger.LogTrace("{remote} -> TCP Rx {length}", Remote, requestLength);
@@ -94,7 +96,7 @@ namespace HomeKit.Hap
 
                     try
                     {
-                        int responseLength = ProcessRequest(requestLength);
+                        int responseLength = ProcessRequest(requestLength, out closeRequested);
                         if (responseLength == 0)
                         {
                             throw new Exception("Response length 0");
@@ -132,7 +134,7 @@ namespace HomeKit.Hap
             }
         }
 
-        private int ProcessRequest(int rxLength)
+        private int ProcessRequest(int rxLength, out bool closeRequested)
         {
             rxLength = m_Aead.Decrypt(m_ReadBuffer.AsSpan(0, rxLength), m_ReadBuffer.AsSpan());
 
@@ -149,6 +151,8 @@ namespace HomeKit.Hap
             var method = where[0];
             var path = where[1];
             //var version = where[2];
+
+            closeRequested = false;
 
             var query = string.Empty;
             if (path.Contains('?'))
@@ -173,6 +177,7 @@ namespace HomeKit.Hap
                     //if (split[0] == "Host") host = split[1];
                     //if (split[0] == "Content-Type") contentType = split[1];
                     if (split[0] == "Content-Length") contentLength = int.Parse(split[1]);
+                    if (split[0] == "Connection" && split[1] == "close") closeRequested = true;
                 }
             }
 
