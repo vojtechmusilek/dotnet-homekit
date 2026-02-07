@@ -186,14 +186,17 @@ namespace HomeKit.Hap
 
             m_Logger.LogDebug("{remote} -> {method} {path} {query}", Remote, method, path, query);
 
-            var txLength = (method, path) switch
+            var authorized = m_Aead.Encrypted;
+
+            var txLength = (method, path, authorized) switch
             {
-                ("POST", "/pair-setup") => PairSetup(rx, tx),
-                ("POST", "/pair-verify") => PairVerify(rx, tx),
-                ("POST", "/pairings") => Pairings(rx, tx),
-                ("GET", "/accessories") => GetAccessories(tx),
-                ("GET", "/characteristics") => GetCharacteristics(tx, query),
-                ("PUT", "/characteristics") => PutCharacteristics(rx, tx),
+                ("POST", "/pair-setup", false) => PairSetup(rx, tx),
+                ("POST", "/pair-verify", false) => PairVerify(rx, tx),
+                (_, _, false) => WriteAuthorizationRequired(tx),
+                ("POST", "/pairings", true) => Pairings(rx, tx),
+                ("GET", "/accessories", true) => GetAccessories(tx),
+                ("GET", "/characteristics", true) => GetCharacteristics(tx, query),
+                ("PUT", "/characteristics", true) => PutCharacteristics(rx, tx),
                 _ => throw new NotImplementedException($"Method {method}, {path}, {query}"),
             };
 
@@ -869,6 +872,13 @@ namespace HomeKit.Hap
             return httpLength;
         }
 
+        private static int WriteAuthorizationRequired(Span<byte> httpBuffer)
+        {
+            var httpLength = 0;
+            httpLength += HttpWriter.WriteAuthorizationRequired(httpBuffer[httpLength..]);
+            httpLength += HttpWriter.WriteContent(httpBuffer[httpLength..], HttpWriter.StatusCodes.InsufficientPrivileges);
+            return httpLength;
+        }
     }
 
 #pragma warning disable CA2211
