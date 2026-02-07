@@ -555,7 +555,7 @@ namespace HomeKit.Hap
             m_Logger.LogInformation("{remote} -> Add pairing", Remote);
 
             /// 5.10.2 - 1, 2
-            if (m_PairedClient is null || m_PairedClient.ClientPermissions != 1)
+            if (m_PairedClient is null || !m_PairedClient.IsAdmin)
             {
                 return WriteError(tx, TlvError.Authentication, 2);
             }
@@ -610,7 +610,7 @@ namespace HomeKit.Hap
             m_Logger.LogInformation("{remote} -> Remove pairing", Remote);
 
             /// 5.11.2 - 1, 2
-            if (m_PairedClient is null || m_PairedClient.ClientPermissions != 1)
+            if (m_PairedClient is null || !m_PairedClient.IsAdmin)
             {
                 return WriteError(tx, TlvError.Authentication, 2);
             }
@@ -638,7 +638,7 @@ namespace HomeKit.Hap
             m_Logger.LogInformation("{remote} -> List pairings", Remote);
 
             /// 5.12.2 - 1, 2
-            if (m_PairedClient is null || m_PairedClient.ClientPermissions != 1)
+            if (m_PairedClient is null || !m_PairedClient.IsAdmin)
             {
                 return WriteError(tx, TlvError.Authentication, 2);
             }

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Ed25519;
 
 namespace HomeKit
@@ -54,5 +55,8 @@ namespace HomeKit
         public required Guid Id { get; init; }
         public required byte[] ClientLtPk { get; init; }
         public required byte ClientPermissions { get; set; }
+
+        [JsonIgnore]
+        public bool IsAdmin => ClientPermissions == 1;
     }
 }
